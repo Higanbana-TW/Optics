@@ -3,6 +3,7 @@
 
 from datetime import datetime
 from pathlib import Path
+import re
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 from openpyxl import Workbook
@@ -336,7 +337,14 @@ def save_deterministic(workbook: Workbook, output: Path) -> None:
             info.compress_type = ZIP_DEFLATED
             info.external_attr = original.external_attr
             info.create_system = original.create_system
-            target.writestr(info, source.read(name))
+            data = source.read(name)
+            if name == "docProps/core.xml":
+                data = re.sub(
+                    rb"(<dcterms:modified[^>]*>)[^<]*(</dcterms:modified>)",
+                    rb"\g<1>2000-01-01T00:00:00Z\g<2>",
+                    data,
+                )
+            target.writestr(info, data)
     normalized.replace(output)
 
 

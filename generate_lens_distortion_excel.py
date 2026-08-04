@@ -16,7 +16,7 @@ from openpyxl.worksheet.datavalidation import DataValidation
 OUTPUT = Path(__file__).with_name("lens_distortion_line_calculator.xlsx")
 FIXED_TIMESTAMP = (2000, 1, 1, 0, 0, 0)
 TABLE_FIRST = 19
-TABLE_LAST = 218
+TABLE_LAST = 2018
 CORNER_FIRST = 19
 CORNER_LAST = 22
 BOUNDARY_FIRST = 27
@@ -46,8 +46,8 @@ def section(ws, cell_range: str, title: str) -> None:
 def inverse_angle_formula(radius_cell: str) -> str:
     """Invert distorted sensor radius to half field angle."""
     count = "$E$12"
-    d_range = "$D$19:$D$218"
-    a_range = "$A$19:$A$218"
+    d_range = f"$D$19:$D${TABLE_LAST}"
+    a_range = f"$A$19:$A${TABLE_LAST}"
     active_d = f"$D$19:INDEX({d_range},{count})"
     match = f"MATCH({radius_cell},{active_d},1)"
     return (
@@ -64,8 +64,8 @@ def inverse_angle_formula(radius_cell: str) -> str:
 def forward_radius_formula(angle_cell: str) -> str:
     """Interpolate distorted sensor radius at a half field angle."""
     count = "$E$12"
-    a_range = "$A$19:$A$218"
-    d_range = "$D$19:$D$218"
+    a_range = f"$A$19:$A${TABLE_LAST}"
+    d_range = f"$D$19:$D${TABLE_LAST}"
     active_a = f"$A$19:INDEX({a_range},{count})"
     match = f"MATCH({angle_cell},{active_a},1)"
     return (
@@ -169,7 +169,7 @@ def build_workbook() -> Workbook:
         '"錯誤：畸變像高須遞增","OK")))))'
     )
     ws["D14"] = "目標範圍"
-    ws["E14"] = '=IF(MAX(L19:L22)>MAX(D19:D218),"警告：超出表格，使用端點角度","OK")'
+    ws["E14"] = f'=IF(MAX(L19:L22)>MAX(D19:D{TABLE_LAST}),"警告：超出表格，使用端點角度","OK")'
     for row in range(11, 15):
         for col in range(1, 6):
             ws.cell(row, col).border = BORDER
@@ -177,7 +177,7 @@ def build_workbook() -> Workbook:
             ws.cell(row, 4).fill = PatternFill("solid", fgColor=GRAY)
             ws.cell(row, 5).fill = PatternFill("solid", fgColor=GREEN)
 
-    section(ws, "A17:E17", "Lens distortion table（最多 200 筆）")
+    section(ws, "A17:E17", "Lens distortion table（最多 2000 筆）")
     table_headers = [
         "半視角 θ\n(degree)",
         "Optical distortion\n(%)",
@@ -333,7 +333,7 @@ def build_workbook() -> Workbook:
     verify_series.graphicalProperties.line.solidFill = "C00000"
     sensor_chart.series.append(target_series)
     sensor_chart.series.append(verify_series)
-    ws.add_chart(sensor_chart, "A231")
+    ws.add_chart(sensor_chart, "G231")
 
     object_chart = ScatterChart()
     object_chart.title = "物方：需要製作的預變形曲邊"
@@ -347,7 +347,7 @@ def build_workbook() -> Workbook:
     object_series.graphicalProperties.line.solidFill = "70AD47"
     object_chart.series.append(object_series)
     object_chart.legend = None
-    ws.add_chart(object_chart, "J231")
+    ws.add_chart(object_chart, "G251")
 
     guide.sheet_view.showGridLines = False
     guide.merge_cells("A1:F1")
@@ -361,7 +361,7 @@ def build_workbook() -> Workbook:
         ("目的", "先在 sensor 座標中定義正常長方形。本檔反向求出物方應製作的預變形邊界，使其經鏡頭後回到指定長方形。"),
         ("操作", "1. 輸入 pixel size、EFL、物方平面至入瞳距離及光軸中心。\\n"
          "2. 輸入 sensor 目標長方形的中心、寬、高、順時針旋轉角。\\n"
-         "3. 將黃色示例表換成鏡頭的半視角／Optical distortion 資料，可貼入最多 200 筆。\\n"
+         "3. 將黃色示例表換成鏡頭的半視角／Optical distortion 資料，可貼入最多 2000 筆。\\n"
          "4. 讀取四角或完整曲邊的物方 X/Y。"),
         ("畸變定義", "Distortion(%)=(畸變 sensor 半徑/理想 sensor 半徑−1)×100%。"
          "正值向外（通常 pincushion），負值向內（通常 barrel）。TV distortion 或相反符號必須先轉換。"),

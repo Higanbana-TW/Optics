@@ -4,7 +4,7 @@
 
 [`lens_distortion_line_calculator.xlsx`](lens_distortion_line_calculator.xlsx) 以 sensor 上希望得到的正常長方形為目標，反算物方應製作的預變形邊界：
 
-- 最多 200 筆半視角／Optical distortion (%) 資料
+- 最多 2000 筆半視角／Optical distortion (%) 資料
 - Sensor pixel size、EFL、物方平面至入瞳距離及光軸中心
 - Sensor 目標長方形的中心、寬、高與旋轉角
 

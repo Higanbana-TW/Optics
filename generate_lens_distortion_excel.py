@@ -82,7 +82,7 @@ def add_mapping_formulas(ws, row: int) -> None:
     ws.cell(row, 15, f'=M{row}-$B$8/2')  # O centered sensor Y
     ws.cell(row, 16, f'=SQRT(N{row}^2+O{row}^2)')  # P image height
     ws.cell(row, 17, inverse_angle_formula(f"P{row}"))  # Q half field angle
-    ws.cell(row, 25, f'=$B$12*TAN(RADIANS(Q{row}))')  # Y hidden object radius
+    ws.cell(row, 25, f'=$B$10*TAN(RADIANS(Q{row}))')  # Y hidden object radius
     ws.cell(row, 18, f'=IF(P{row}=0,0,-Y{row}*N{row}/P{row})')  # R CAD X
     ws.cell(row, 19, f'=IF(P{row}=0,0,Y{row}*O{row}/P{row})')  # S CAD Y
     ws.cell(row, 26, forward_radius_formula(f"Q{row}"))  # Z hidden forward radius

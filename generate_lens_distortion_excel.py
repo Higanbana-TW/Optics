@@ -144,7 +144,7 @@ def build_workbook() -> Workbook:
     ws["D9"] = (
         "第一象限位置：X 向右、Y 向上。\n"
         "指定 TV本的橫／豎線組合中心位於半對角線指定倍率。\n"
-        "橫線組在左、豎線組在右；11 級由低至高向右排列。"
+        "橫線組在左、豎線組在右；11 級由上到下排列。"
     )
     ws["D9"].alignment = Alignment(wrap_text=True, vertical="top")
     ws["D9"].fill = PatternFill("solid", fgColor=BLUE)
@@ -194,17 +194,17 @@ def build_workbook() -> Workbook:
         ws.cell(row, 12, f"=$B$8/K{row}")
         ws.cell(row, 13, f"=(2*$E$7-1)*L{row}")
         ws.cell(row, 14, f"=2*M{row}+L{row}")
-        ws.cell(row, 16, f"=$B$8/2-$E$6*$B$8/2")
+        ws.cell(row, 15, f"=$B$7/2+$E$6*$B$7/2")
         for col in range(10, 17):
             ws.cell(row, col).border = BORDER
             ws.cell(row, col).fill = PatternFill("solid", fgColor=GREEN)
             ws.cell(row, col).number_format = "0.000000"
     # The specified TVL (level 0, row 9) is centered at 0.7 of the half diagonal.
-    ws["O9"] = "=$B$7/2+$E$6*$B$7/2"
+    ws["P9"] = "=$B$8/2-$E$6*$B$8/2"
     for row in range(10, TVL_LAST + 1):
-        ws.cell(row, 15, f"=O{row-1}+N{row-1}/2+MIN(L{row-1},L{row})+N{row}/2")
+        ws.cell(row, 16, f"=P{row-1}+M{row-1}/2+MIN(L{row-1},L{row})+M{row}/2")
     for row in range(8, TVL_FIRST - 1, -1):
-        ws.cell(row, 15, f"=O{row+1}-N{row+1}/2-MIN(L{row},L{row+1})-N{row}/2")
+        ws.cell(row, 16, f"=P{row+1}-M{row+1}/2-MIN(L{row},L{row+1})-M{row}/2")
 
     section(ws, "A17:E17", "Lens distortion table（最多 2000 筆）")
     table_headers = [
@@ -355,7 +355,7 @@ def build_workbook() -> Workbook:
         ("位置", "只生成第一象限。Sensor 中心為座標中心；第一象限是 X 向右、Y 向上。"
          "指定 TV本的橫線組與豎線組之組合中心位於中心至右上角半對角線的指定倍率，預設 0.7。"),
         ("11 級 TV本", "預設指定 1500 TV本、間隔 100 TV本，自動產生 1000～2000 TV本，共 11 級。"
-         "相鄰圖樣的間隔採兩級中較細的線寬。"),
+         "11 級垂直排列：1000 TV本在上方較外場，2000 TV本在下方較內場；相鄰圖樣的間隔採兩級中較細的線寬。"),
         ("線條幾何", "每級包含 5 條橫線與 5 條豎線。線寬=Sensor 高度/TV本；線間空白等於線寬。"
          "5 條線加 4 個空白形成邊長 9×線寬的正方形線組；橫線組在左、豎線組在右，兩組間隔一個線寬。"),
         ("440 點", "11級×2方向×5條線×4角=440點。每條線以四個角點輸出，不重複首點。"

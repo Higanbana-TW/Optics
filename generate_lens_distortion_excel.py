@@ -83,8 +83,8 @@ def build_workbook() -> Workbook:
     )
 
     line_inputs = [
-        (4, "線段起點", -100.0, -50.0),
-        (5, "線段終點", 100.0, 50.0),
+        (4, "線段起點", -100.0, 50.0),
+        (5, "線段終點", 100.0, 100.0),
     ]
     for cell, text in (("D3", "物方直線輸入"), ("E3", "X (mm)"), ("F3", "Y (mm)")):
         ws[cell] = text
@@ -291,7 +291,7 @@ def build_workbook() -> Workbook:
         ("FOV 定義", "若 datasheet 的 FOV 是左右（或對角線）兩側合計角度，選「全視場角」；"
          "若是從光軸到單側的 field angle，選「半視場角」。FOV 必須與物方 X/Y 所代表的同一像面方向相符。"),
         ("Distortion 定義", "本檔使用 Distortion(%)=(畸變像高/理想像高-1)×100%。"
-         "正值是 barrel 方向的向外位移，負值是 pincushion 方向的向內位移。"
+         "正值是向外位移（通常稱 pincushion），負值是向內位移（通常稱 barrel）。"
          "若鏡頭資料表使用相反符號或 TV distortion，需先轉換，不能直接套用。"),
         ("座標系", "物方 X 向右、Y 向上，光軸穿過 (0,0)，物體平面與 sensor 平行。"
          "相對 pixel X 向右、Y 向下；絕對座標再加上影像中心。"),

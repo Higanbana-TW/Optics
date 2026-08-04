@@ -61,20 +61,20 @@ def inverse_angle_formula(radius_cell: str) -> str:
     )
 
 
-def forward_distortion_formula(angle_cell: str) -> str:
-    """Interpolate optical distortion at a half field angle."""
+def forward_radius_formula(angle_cell: str) -> str:
+    """Interpolate distorted sensor radius at a half field angle."""
     count = "$E$12"
     a_range = "$A$19:$A$218"
-    b_range = "$B$19:$B$218"
+    d_range = "$D$19:$D$218"
     active_a = f"$A$19:INDEX({a_range},{count})"
     match = f"MATCH({angle_cell},{active_a},1)"
     return (
         f'=IF(OR($E$13<>"OK",{angle_cell}=""),"",'
-        f'IF({angle_cell}<=$A$19,$B$19,'
-        f'IF({angle_cell}>=INDEX({a_range},{count}),INDEX({b_range},{count}),'
-        f'INDEX({b_range},{match})+'
+        f'IF({angle_cell}<=$A$19,$D$19,'
+        f'IF({angle_cell}>=INDEX({a_range},{count}),INDEX({d_range},{count}),'
+        f'INDEX({d_range},{match})+'
         f'({angle_cell}-INDEX({a_range},{match}))*'
-        f'(INDEX({b_range},{match}+1)-INDEX({b_range},{match}))/'
+        f'(INDEX({d_range},{match}+1)-INDEX({d_range},{match}))/'
         f'(INDEX({a_range},{match}+1)-INDEX({a_range},{match})))))'
     )
 
@@ -90,12 +90,8 @@ def add_mapping_formulas(ws, row: int) -> None:
     # corresponds to positive object Y-up after the optical inversion.
     ws.cell(row, 15, f'=IF(N{row}="","",IF(L{row}=0,0,-N{row}*J{row}/SQRT(J{row}^2+K{row}^2)))')
     ws.cell(row, 16, f'=IF(N{row}="","",IF(L{row}=0,0,N{row}*K{row}/SQRT(J{row}^2+K{row}^2)))')
-    ws.cell(row, 24, forward_distortion_formula(f"M{row}"))  # X hidden
-    ws.cell(
-        row,
-        25,
-        f'=IF(M{row}="","",$B$5*TAN(RADIANS(M{row}))*(1+X{row}/100)*1000/$B$4)',
-    )
+    ws.cell(row, 24, forward_radius_formula(f"M{row}"))  # X hidden, mm
+    ws.cell(row, 25, f'=IF(X{row}="","",X{row}*1000/$B$4)')  # Y hidden, pixel
     ws.cell(row, 17, f'=IF(N{row}="","",IF(N{row}=0,$B$7,$B$7-Y{row}*O{row}/N{row}))')
     ws.cell(row, 18, f'=IF(N{row}="","",IF(N{row}=0,$B$8,$B$8+Y{row}*P{row}/N{row}))')
     ws.cell(row, 19, f'=IFERROR(SQRT((Q{row}-H{row})^2+(R{row}-I{row})^2),"")')
@@ -164,12 +160,13 @@ def build_workbook() -> Workbook:
     ws["D13"] = "畸變表狀態"
     ws["E13"] = (
         '=IF(E12<2,"錯誤：至少 2 列",'
+        'IF(A19<>0,"錯誤：首列半視角須為 0",'
         'IF(COUNTBLANK(A19:INDEX(A:A,18+E12))+COUNTBLANK(B19:INDEX(B:B,18+E12))>0,'
         '"錯誤：中間不可空白",'
         'IF(SUMPRODUCT(--(A20:INDEX(A:A,18+E12)<=A19:INDEX(A:A,17+E12)))>0,'
         '"錯誤：半視角須遞增",'
         'IF(SUMPRODUCT(--(D20:INDEX(D:D,18+E12)<=D19:INDEX(D:D,17+E12)))>0,'
-        '"錯誤：畸變像高須遞增","OK"))))'
+        '"錯誤：畸變像高須遞增","OK")))))'
     )
     ws["D14"] = "目標範圍"
     ws["E14"] = '=IF(MAX(L19:L22)>MAX(D19:D218),"警告：超出表格，使用端點角度","OK")'
@@ -368,8 +365,8 @@ def build_workbook() -> Workbook:
          "4. 讀取四角或完整曲邊的物方 X/Y。"),
         ("畸變定義", "Distortion(%)=(畸變 sensor 半徑/理想 sensor 半徑−1)×100%。"
          "正值向外（通常 pincushion），負值向內（通常 barrel）。TV distortion 或相反符號必須先轉換。"),
-        ("反向算法", "先以目標 sensor 半徑反查「畸變 sensor 半徑」得到半視角，再用 R=Z·tan(θ) 求物方半徑。"
-         "超出表格時使用端點角度，不外插；應避免出現警告。"),
+        ("反向算法", "由每筆半視角／Distortion 先建立「半視角 ↔ 畸變 sensor 半徑」LUT，並在相鄰資料點間做分段線性內插；"
+         "再用 R=Z·tan(θ) 求物方半徑。首列半視角必須為 0；超出表格時使用端點角度，不外插。"),
         ("四角與曲邊", "P1～P4 只能保證四個角落正確。徑向逆畸變通常使物方直邊變成曲線；若要 sensor 邊緣筆直，"
          "請使用「完整預變形曲邊座標」。每邊取樣越多，折線近似越準。"),
         ("座標方向", "Sensor X 向右、Y 向下。物方 X 向右、Y 向上，並包含鏡頭形成的倒像：sensor X 與物方 X 符號相反。"

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Generate a Traditional-Chinese lens-distortion line calculator workbook."""
 
+from datetime import datetime
 from pathlib import Path
+from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 from openpyxl import Workbook
 from openpyxl.chart import Reference, ScatterChart, Series
@@ -12,10 +14,13 @@ from openpyxl.worksheet.datavalidation import DataValidation
 
 
 OUTPUT = Path(__file__).with_name("lens_distortion_line_calculator.xlsx")
+FIXED_TIMESTAMP = (2000, 1, 1, 0, 0, 0)
 
 
 def build_workbook() -> Workbook:
     wb = Workbook()
+    wb.properties.created = datetime(*FIXED_TIMESTAMP)
+    wb.properties.modified = datetime(*FIXED_TIMESTAMP)
     ws = wb.active
     ws.title = "畸變線計算器"
     guide = wb.create_sheet("使用說明")
@@ -318,7 +323,24 @@ def build_workbook() -> Workbook:
     return wb
 
 
+def save_deterministic(workbook: Workbook, output: Path) -> None:
+    """Save an XLSX with stable entry order and ZIP timestamps."""
+    workbook.save(output)
+    normalized = output.with_suffix(".normalized.xlsx")
+    with ZipFile(output, "r") as source, ZipFile(
+        normalized, "w", compression=ZIP_DEFLATED, compresslevel=9
+    ) as target:
+        for name in sorted(source.namelist()):
+            original = source.getinfo(name)
+            info = ZipInfo(name, date_time=FIXED_TIMESTAMP)
+            info.compress_type = ZIP_DEFLATED
+            info.external_attr = original.external_attr
+            info.create_system = original.create_system
+            target.writestr(info, source.read(name))
+    normalized.replace(output)
+
+
 if __name__ == "__main__":
     workbook = build_workbook()
-    workbook.save(OUTPUT)
+    save_deterministic(workbook, OUTPUT)
     print(f"Created {OUTPUT}")

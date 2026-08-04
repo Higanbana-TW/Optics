@@ -169,6 +169,13 @@ def build_workbook() -> Workbook:
             '"錯誤：畸變像高須遞增","OK")))))',
         ),
         (8, "目標範圍", f'=IF(MAX(P{OUTPUT_FIRST}:P{OUTPUT_LAST})>MAX(D19:D{TABLE_LAST}),"警告：超出畸變表","OK")'),
+        (
+            9,
+            "Sensor 裁切",
+            f'=IF(OR(MIN(L{OUTPUT_FIRST}:L{OUTPUT_LAST})<0,MAX(L{OUTPUT_FIRST}:L{OUTPUT_LAST})>$B$7,'
+            f'MIN(M{OUTPUT_FIRST}:M{OUTPUT_LAST})<0,MAX(M{OUTPUT_FIRST}:M{OUTPUT_LAST})>$B$8),'
+            '"警告：Chart 超出 Sensor","OK")',
+        ),
     ]
     for row, label, formula in checks:
         ws.cell(row, 7, label)
@@ -214,8 +221,8 @@ def build_workbook() -> Workbook:
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         cell.border = BORDER
     ws.row_dimensions[18].height = 42
-    example_angles = [0, 10, 20, 30, 40]
-    example_distortion = [0, -0.5, -2.0, -4.5, -8.0]
+    example_angles = [0, 10, 20, 30, 40, 50]
+    example_distortion = [0, -0.5, -2.0, -4.5, -8.0, -12.0]
     for index, row in enumerate(range(TABLE_FIRST, TABLE_LAST + 1)):
         if index < len(example_angles):
             ws.cell(row, 1, example_angles[index])
@@ -293,7 +300,7 @@ def build_workbook() -> Workbook:
     ws.add_data_validation(field)
     field.add("E6")
     ws.conditional_formatting.add(
-        "H4:H8",
+        "H4:H9",
         FormulaRule(formula=['LEFT(H4,2)<>"OK"'], fill=PatternFill("solid", fgColor=RED)),
     )
 

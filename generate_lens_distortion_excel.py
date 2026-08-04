@@ -49,13 +49,12 @@ def inverse_angle_formula(radius_cell: str) -> str:
     active_d = f"$D$19:INDEX({d_range},{count})"
     match = f"MATCH({radius_cell},{active_d},1)"
     return (
-        f'=IF(OR($H$7<>"OK",{radius_cell}=""),"",'
-        f'IF({radius_cell}<=$D$19,$A$19,'
+        f'=IF({radius_cell}<=$D$19,$A$19,'
         f'IF({radius_cell}>=INDEX({d_range},{count}),INDEX({a_range},{count}),'
         f'INDEX({a_range},{match})+'
         f'({radius_cell}-INDEX({d_range},{match}))*'
         f'(INDEX({a_range},{match}+1)-INDEX({a_range},{match}))/'
-        f'(INDEX({d_range},{match}+1)-INDEX({d_range},{match})))))'
+        f'(INDEX({d_range},{match}+1)-INDEX({d_range},{match}))))'
     )
 
 
@@ -66,13 +65,12 @@ def forward_radius_formula(angle_cell: str) -> str:
     active_a = f"$A$19:INDEX({a_range},{count})"
     match = f"MATCH({angle_cell},{active_a},1)"
     return (
-        f'=IF(OR($H$7<>"OK",{angle_cell}=""),"",'
-        f'IF({angle_cell}<=$A$19,$D$19,'
+        f'=IF({angle_cell}<=$A$19,$D$19,'
         f'IF({angle_cell}>=INDEX({a_range},{count}),INDEX({d_range},{count}),'
         f'INDEX({d_range},{match})+'
         f'({angle_cell}-INDEX({a_range},{match}))*'
         f'(INDEX({d_range},{match}+1)-INDEX({d_range},{match}))/'
-        f'(INDEX({a_range},{match}+1)-INDEX({a_range},{match})))))'
+        f'(INDEX({a_range},{match}+1)-INDEX({a_range},{match}))))'
     )
 
 
@@ -83,11 +81,11 @@ def add_mapping_formulas(ws, row: int) -> None:
     ws.cell(row, 16, f'=SQRT(N{row}^2+O{row}^2)')  # P image height
     ws.cell(row, 17, inverse_angle_formula(f"P{row}"))  # Q half field angle
     ws.cell(row, 25, f'=$B$10*TAN(RADIANS(Q{row}))')  # Y hidden object radius
-    ws.cell(row, 18, f'=IF(P{row}=0,0,-Y{row}*N{row}/P{row})')  # R CAD X
-    ws.cell(row, 19, f'=IF(P{row}=0,0,Y{row}*O{row}/P{row})')  # S CAD Y
+    ws.cell(row, 18, f'=-Y{row}*N{row}/P{row}')  # R CAD X
+    ws.cell(row, 19, f'=Y{row}*O{row}/P{row}')  # S CAD Y
     ws.cell(row, 26, forward_radius_formula(f"Q{row}"))  # Z hidden forward radius
-    ws.cell(row, 20, f'=IF(Y{row}=0,$B$7/2,$B$7/2-Z{row}*R{row}/Y{row})')
-    ws.cell(row, 21, f'=IF(Y{row}=0,$B$8/2,$B$8/2+Z{row}*S{row}/Y{row})')
+    ws.cell(row, 20, f'=$B$7/2-Z{row}*R{row}/Y{row}')
+    ws.cell(row, 21, f'=$B$8/2+Z{row}*S{row}/Y{row}')
     ws.cell(row, 22, f'=SQRT((T{row}-L{row})^2+(U{row}-M{row})^2)')
 
 
@@ -160,13 +158,12 @@ def build_workbook() -> Workbook:
             7,
             "畸變表狀態",
             '=IF(H6<2,"錯誤：至少 2 列",'
-            'IF(A19<>0,"錯誤：首列半視角須為 0",'
             'IF(COUNTBLANK(A19:INDEX(A:A,18+H6))+COUNTBLANK(B19:INDEX(B:B,18+H6))>0,'
             '"錯誤：中間不可空白",'
             'IF(SUMPRODUCT(--(A20:INDEX(A:A,18+H6)<=A19:INDEX(A:A,17+H6)))>0,'
             '"錯誤：半視角須遞增",'
             'IF(SUMPRODUCT(--(D20:INDEX(D:D,18+H6)<=D19:INDEX(D:D,17+H6)))>0,'
-            '"錯誤：畸變像高須遞增","OK")))))',
+            '"錯誤：畸變像高須遞增","OK"))))',
         ),
         (8, "目標範圍", f'=IF(MAX(P{OUTPUT_FIRST}:P{OUTPUT_LAST})>MAX(D19:D{TABLE_LAST}),"警告：超出畸變表","OK")'),
         (

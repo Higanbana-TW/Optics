@@ -7,7 +7,8 @@
 
 ## 免安裝網頁版
 
-直接開啟 [西門子星網頁產生器](https://higanbana-tw.github.io/Optics/)。
+直接開啟
+[西門子星網頁產生器](https://raw.githack.com/Higanbana-TW/Optics/cursor%2Fsiemens-star-generator-71ee/docs/index.html)。
 所有圖形都在瀏覽器本機產生，不會上傳資料，也不需安裝 Python 或執行檔。
 
 ### 使用方式

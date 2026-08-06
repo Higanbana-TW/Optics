@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from siemens_star import create_siemens_star, save_svg
+from siemens_star import create_siemens_star, save_svg, svg_bytes
 
 
 SVG = "{http://www.w3.org/2000/svg}"
@@ -40,6 +40,18 @@ class SiemensStarTests(unittest.TestCase):
         self.assertEqual(parsed.tag, f"{SVG}svg")
         self.assertEqual(parsed.attrib["width"], "210mm")
         self.assertEqual(len(parsed.findall(f"./{SVG}g/{SVG}path")), 36)
+
+    def test_gui_values_create_named_download(self):
+        content, filename = svg_bytes("2", "A3", "landscape")
+        root = ET.fromstring(content)
+
+        self.assertEqual(filename, "siemens_star_a3_2deg_landscape.svg")
+        self.assertEqual(root.attrib["width"], "420mm")
+        self.assertEqual(root.attrib["height"], "297mm")
+
+    def test_gui_rejects_unknown_paper(self):
+        with self.assertRaisesRegex(ValueError, "A4 或 A3"):
+            svg_bytes("2", "letter", "portrait")
 
     def test_rejects_angle_that_does_not_close_circle(self):
         with self.assertRaisesRegex(ValueError, "整除 360"):

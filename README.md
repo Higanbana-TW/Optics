@@ -18,6 +18,12 @@ python3 siemens_star.py
 或關閉設定頁才會結束程式。介面只使用 Python 標準函式庫，
 不需安裝 Tkinter 或其他套件。
 
+### Windows 執行檔
+
+GitHub Actions 的 `Build Windows EXE` 流程會產生
+`SiemensStar-Windows` 成品，其中包含可直接雙擊執行的
+`SiemensStar.exe`，使用者不需另外安裝 Python。
+
 ### 命令列使用方式
 
 產生每區隔 2°、佈滿整張 A4 的直向版本：

@@ -12,10 +12,13 @@ SVG = "{http://www.w3.org/2000/svg}"
 class SiemensStarTests(unittest.TestCase):
     def test_a4_two_degree_star(self):
         root = create_siemens_star(angle_deg=2, paper="A4")
+        star = root.find("./g")
 
         self.assertEqual(root.attrib["width"], "210mm")
         self.assertEqual(root.attrib["height"], "297mm")
         self.assertEqual(len(root.findall("./g/path")), 90)
+        self.assertEqual(star.attrib["clip-path"], "url(#paper-clip)")
+        self.assertIn("A 363.743041 363.743041", star.find("path").attrib["d"])
 
     def test_a3_five_degree_landscape_star(self):
         root = create_siemens_star(
@@ -42,9 +45,19 @@ class SiemensStarTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "整除 360"):
             create_siemens_star(angle_deg=7)
 
-    def test_rejects_radius_outside_printable_area(self):
+    def test_optional_circle_mode_uses_printable_radius(self):
+        root = create_siemens_star(angle_deg=5, paper="A4", fill_page=False)
+
+        self.assertIn("A 95 95", root.find("./g/path").attrib["d"])
+
+    def test_rejects_circle_radius_outside_printable_area(self):
         with self.assertRaisesRegex(ValueError, "半徑過大"):
-            create_siemens_star(angle_deg=5, paper="A4", radius_mm=100)
+            create_siemens_star(
+                angle_deg=5,
+                paper="A4",
+                fill_page=False,
+                radius_mm=100,
+            )
 
 
 if __name__ == "__main__":

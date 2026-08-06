@@ -38,6 +38,7 @@ def create_siemens_star(
     angle_deg: float,
     paper: str = "A4",
     orientation: str = "portrait",
+    fill_page: bool = True,
     margin_mm: float = 10.0,
     radius_mm: float | None = None,
 ) -> ET.Element:
@@ -57,17 +58,22 @@ def create_siemens_star(
         raise ValueError("區隔總數必須是偶數，才能讓黑白區塊交替閉合")
 
     width, height = _paper_dimensions(paper, orientation)
-    if margin_mm < 0:
-        raise ValueError("邊界不可小於 0 mm")
-
-    max_radius = min(width, height) / 2 - margin_mm
-    radius = max_radius if radius_mm is None else radius_mm
-    if radius <= 0:
-        raise ValueError("星形半徑必須大於 0 mm")
-    if radius > max_radius:
-        raise ValueError(
-            f"星形半徑過大；目前紙張與邊界設定最多可用 {_fmt(max_radius)} mm"
-        )
+    if fill_page:
+        # A radius larger than the page diagonal places every circular arc
+        # outside the page. Clipping then turns each sector into a ray-filled
+        # region that reaches the rectangular paper edges.
+        radius = math.hypot(width, height)
+    else:
+        if margin_mm < 0:
+            raise ValueError("邊界不可小於 0 mm")
+        max_radius = min(width, height) / 2 - margin_mm
+        radius = max_radius if radius_mm is None else radius_mm
+        if radius <= 0:
+            raise ValueError("星形半徑必須大於 0 mm")
+        if radius > max_radius:
+            raise ValueError(
+                f"星形半徑過大；目前紙張與邊界設定最多可用 {_fmt(max_radius)} mm"
+            )
 
     svg = ET.Element(
         "svg",
@@ -78,8 +84,19 @@ def create_siemens_star(
             "viewBox": f"0 0 {_fmt(width)} {_fmt(height)}",
         },
     )
+    mode = "full page" if fill_page else "circular"
     ET.SubElement(svg, "title").text = (
-        f"Siemens star: {angle_deg:g} degree sectors, {paper.upper()}"
+        f"Siemens star: {angle_deg:g} degree sectors, {paper.upper()}, {mode}"
+    )
+    defs = ET.SubElement(svg, "defs")
+    clip_path = ET.SubElement(defs, "clipPath", {"id": "paper-clip"})
+    ET.SubElement(
+        clip_path,
+        "rect",
+        {
+            "width": _fmt(width),
+            "height": _fmt(height),
+        },
     )
     ET.SubElement(
         svg,
@@ -99,6 +116,7 @@ def create_siemens_star(
             "id": "siemens-star",
             "fill": "black",
             "shape-rendering": "geometricPrecision",
+            "clip-path": "url(#paper-clip)",
         },
     )
 
@@ -156,15 +174,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="紙張方向（預設：portrait）",
     )
     parser.add_argument(
+        "--circle",
+        action="store_true",
+        help="產生傳統圓形版本（預設會讓放射區塊佈滿整張紙）",
+    )
+    parser.add_argument(
         "--margin",
         type=float,
         default=10.0,
-        help="紙張四周保留邊界，單位 mm（預設：10）",
+        help="圓形模式的紙張邊界，單位 mm（預設：10）",
     )
     parser.add_argument(
         "--radius",
         type=float,
-        help="星形半徑，單位 mm（預設：使用邊界內最大尺寸）",
+        help="圓形模式的星形半徑，單位 mm",
     )
     parser.add_argument(
         "-o",
@@ -177,11 +200,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    args = build_parser().parse_args()
+    parser = build_parser()
+    args = parser.parse_args()
+    if args.radius is not None and not args.circle:
+        parser.error("--radius 必須搭配 --circle 使用")
     svg = create_siemens_star(
         angle_deg=args.angle,
         paper=args.paper,
         orientation=args.orientation,
+        fill_page=not args.circle,
         margin_mm=args.margin,
         radius_mm=args.radius,
     )

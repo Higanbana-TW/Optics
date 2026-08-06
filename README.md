@@ -5,6 +5,11 @@
 `siemens_star.py` 使用 Python 標準函式庫產生可按實際尺寸列印的 SVG，
 不需安裝額外套件。
 
+## 免安裝網頁版
+
+直接開啟 [西門子星網頁產生器](https://higanbana-tw.github.io/Optics/)。
+所有圖形都在瀏覽器本機產生，不會上傳資料，也不需安裝 Python 或執行檔。
+
 ### 使用方式
 
 直接執行或雙擊開啟 `siemens_star.py`：

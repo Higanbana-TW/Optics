@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="免安裝的 A3/A4 滿版西門子星產生器">
+  <title>西門子星產生器</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Inter, "Noto Sans TC", system-ui, sans-serif;
+      color: #172033;
+      background: #e9eef6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: minmax(300px, 420px) minmax(320px, 1fr);
+      gap: 28px;
+      padding: 32px;
+    }
+    .panel, .preview-panel {
+      border: 1px solid #d7deea;
+      border-radius: 20px;
+      background: #fff;
+      box-shadow: 0 16px 48px #17203318;
+    }
+    .panel {
+      align-self: center;
+      padding: 32px;
+    }
+    h1 { margin: 0 0 8px; font-size: clamp(26px, 4vw, 34px); }
+    .intro { margin: 0 0 28px; color: #5b687d; line-height: 1.65; }
+    label { display: block; margin: 18px 0 7px; font-weight: 700; }
+    select {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid #b9c4d5;
+      border-radius: 9px;
+      background: #fff;
+      color: inherit;
+      font: inherit;
+    }
+    button {
+      width: 100%;
+      margin-top: 26px;
+      padding: 14px;
+      border: 0;
+      border-radius: 10px;
+      background: #225bd6;
+      color: #fff;
+      font: inherit;
+      font-weight: 750;
+      cursor: pointer;
+    }
+    button:hover { background: #174ab8; }
+    button:focus-visible, select:focus-visible {
+      outline: 3px solid #76a0ff;
+      outline-offset: 2px;
+    }
+    .note {
+      margin: 18px 0 0;
+      color: #68758a;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+    .preview-panel {
+      min-height: calc(100vh - 64px);
+      padding: 22px;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+    }
+    #preview {
+      max-width: 100%;
+      max-height: calc(100vh - 108px);
+      display: grid;
+      place-items: center;
+      filter: drop-shadow(0 8px 18px #17203338);
+    }
+    #preview svg {
+      display: block;
+      max-width: 100%;
+      max-height: calc(100vh - 108px);
+      width: auto;
+      height: auto;
+      background: #fff;
+    }
+    @media (max-width: 780px) {
+      body { grid-template-columns: 1fr; padding: 18px; }
+      .panel { padding: 26px; }
+      .preview-panel { min-height: 480px; }
+      #preview, #preview svg { max-height: 440px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="panel">
+    <h1>西門子星產生器</h1>
+    <p class="intro">
+      完全在瀏覽器內產生滿版向量圖，不需安裝 Python 或任何程式。
+    </p>
+
+    <label for="angle">區隔角度</label>
+    <select id="angle">
+      <option value="2">2 度</option>
+      <option value="5">5 度</option>
+    </select>
+
+    <label for="paper">紙張大小</label>
+    <select id="paper">
+      <option value="A4">A4（210 × 297 mm）</option>
+      <option value="A3">A3（297 × 420 mm）</option>
+    </select>
+
+    <label for="orientation">紙張方向</label>
+    <select id="orientation">
+      <option value="portrait">直向</option>
+      <option value="landscape">橫向</option>
+    </select>
+
+    <button id="download" type="button">下載 SVG 圖片</button>
+    <p class="note">
+      列印時請選擇「實際大小」或 100%，並關閉「符合頁面」，
+      才能維持正確的 A3／A4 實體尺寸。
+    </p>
+  </main>
+
+  <section class="preview-panel" aria-label="西門子星預覽">
+    <div id="preview"></div>
+  </section>
+
+  <script>
+    const paperSizes = {
+      A4: [210, 297],
+      A3: [297, 420],
+    };
+
+    const angleSelect = document.querySelector("#angle");
+    const paperSelect = document.querySelector("#paper");
+    const orientationSelect = document.querySelector("#orientation");
+    const preview = document.querySelector("#preview");
+    const downloadButton = document.querySelector("#download");
+
+    function format(value) {
+      return value.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
+    }
+
+    function settings() {
+      const paper = paperSelect.value;
+      const angle = Number(angleSelect.value);
+      let [width, height] = paperSizes[paper];
+      if (orientationSelect.value === "landscape") {
+        [width, height] = [height, width];
+      }
+      return { paper, angle, width, height, orientation: orientationSelect.value };
+    }
+
+    function createSvg() {
+      const { paper, angle, width, height, orientation } = settings();
+      const centerX = width / 2;
+      const centerY = height / 2;
+      const radius = Math.hypot(width, height);
+      const sectorCount = Math.round(360 / angle);
+      const paths = [];
+
+      for (let index = 0; index < sectorCount; index += 2) {
+        const start = (-90 + index * angle) * Math.PI / 180;
+        const end = (-90 + (index + 1) * angle) * Math.PI / 180;
+        const x1 = centerX + radius * Math.cos(start);
+        const y1 = centerY + radius * Math.sin(start);
+        const x2 = centerX + radius * Math.cos(end);
+        const y2 = centerY + radius * Math.sin(end);
+        paths.push(
+          `<path d="M ${format(centerX)} ${format(centerY)} ` +
+          `L ${format(x1)} ${format(y1)} ` +
+          `A ${format(radius)} ${format(radius)} 0 0 1 ` +
+          `${format(x2)} ${format(y2)} Z"/>`
+        );
+      }
+
+      const title =
+        `Siemens star: ${angle} degree sectors, ${paper}, ${orientation}`;
+      return `<svg xmlns="http://www.w3.org/2000/svg" ` +
+        `width="${width}mm" height="${height}mm" ` +
+        `viewBox="0 0 ${width} ${height}" role="img" aria-label="${title}">` +
+        `<title>${title}</title>` +
+        `<defs><clipPath id="paper-clip">` +
+        `<rect width="${width}" height="${height}"/>` +
+        `</clipPath></defs>` +
+        `<rect width="${width}" height="${height}" fill="white"/>` +
+        `<g fill="black" shape-rendering="geometricPrecision" ` +
+        `clip-path="url(#paper-clip)">${paths.join("")}</g></svg>`;
+    }
+
+    function updatePreview() {
+      preview.innerHTML = createSvg();
+    }
+
+    function downloadSvg() {
+      const { paper, angle, orientation } = settings();
+      const content = `<?xml version="1.0" encoding="UTF-8"?>\n${createSvg()}`;
+      const blob = new Blob([content], { type: "image/svg+xml;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download =
+        `siemens_star_${paper.toLowerCase()}_${angle}deg_${orientation}.svg`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    [angleSelect, paperSelect, orientationSelect].forEach(element => {
+      element.addEventListener("change", updatePreview);
+    });
+    downloadButton.addEventListener("click", downloadSvg);
+    updatePreview();
+  </script>
+</body>
+</html>

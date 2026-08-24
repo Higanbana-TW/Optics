@@ -1,329 +1,209 @@
-import Hls from "hls.js";
 import "./style.css";
+import {
+  BAYER_PATTERNS,
+  calculateAutoWhiteBalance,
+  encodeBmp,
+  packedRowBytes,
+  renderRaw10,
+  requiredFileBytes,
+  unpackRaw10,
+} from "./raw10.js";
 
 const $ = (selector) => document.querySelector(selector);
-const video = $("#video");
-const videoStage = $("#videoStage");
-const emptyState = $("#emptyState");
-const loadingState = $("#loadingState");
-const sourceLabel = $("#sourceLabel");
-const statusDot = $(".status-dot");
-const seekBar = $("#seekBar");
-const volumeBar = $("#volumeBar");
-const currentTime = $("#currentTime");
-const durationLabel = $("#duration");
-const playIcon = $(".play-icon");
-const pauseIcon = $(".pause-icon");
-const volumeIcon = $(".volume-icon");
-const mutedIcon = $(".muted-icon");
-const bufferBar = $("#bufferBar");
-const streamDialog = $("#streamDialog");
-const helpDialog = $("#helpDialog");
-const streamUrl = $("#streamUrl");
+const canvas = $("#previewCanvas");
+const context = canvas.getContext("2d");
 const fileInput = $("#fileInput");
-const toast = $("#toast");
+const dropZone = $("#dropZone");
+const convertButton = $("#convertButton");
+const downloadButtons = [...document.querySelectorAll("[data-format]")];
+const settingsForm = $("#settingsForm");
 
-let hls = null;
-let objectUrl = null;
+let sourceFile = null;
+let rawPixels = null;
+let renderedImage = null;
 let toastTimer = null;
-let speedIndex = 0;
-const playbackSpeeds = [1, 1.25, 1.5, 1.75, 2, 0.5, 0.75];
-const demoStream = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8";
-
-function formatTime(value) {
-  if (!Number.isFinite(value)) return video.duration === Infinity ? "LIVE" : "00:00";
-  const hours = Math.floor(value / 3600);
-  const minutes = Math.floor((value % 3600) / 60);
-  const seconds = Math.floor(value % 60);
-  return `${hours ? `${String(hours).padStart(2, "0")}:` : ""}${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-}
 
 function showToast(message, type = "") {
   window.clearTimeout(toastTimer);
+  const toast = $("#toast");
   toast.textContent = message;
   toast.className = `toast ${type}`.trim();
-  toastTimer = window.setTimeout(() => toast.classList.add("hidden"), 3400);
+  toastTimer = window.setTimeout(() => toast.classList.add("hidden"), 3800);
 }
 
-function setLoading(isLoading) {
-  loadingState.classList.toggle("hidden", !isLoading);
+function readSettings() {
+  const width = Number($("#width").value);
+  const height = Number($("#height").value);
+  const tightStride = packedRowBytes(width);
+  const strideValue = $("#stride").value.trim();
+  return {
+    width,
+    height,
+    pattern: $("#pattern").value,
+    offset: Number($("#offset").value),
+    stride: strideValue ? Number(strideValue) : tightStride,
+    blackLevel: Number($("#blackLevel").value),
+    whiteLevel: Number($("#whiteLevel").value),
+    gamma: Number($("#gamma").value),
+    exposure: 2 ** Number($("#exposure").value),
+    autoWhiteBalance: $("#autoWhiteBalance").checked,
+  };
 }
 
-function resetSource() {
-  if (hls) {
-    hls.destroy();
-    hls = null;
-  }
-  if (objectUrl) {
-    URL.revokeObjectURL(objectUrl);
-    objectUrl = null;
-  }
-  video.pause();
-  video.removeAttribute("src");
-  video.load();
-  seekBar.value = 0;
-  seekBar.style.setProperty("--range-progress", "0%");
-  bufferBar.style.width = "0";
+function validateSettings(settings) {
+  if (!Number.isInteger(settings.width) || settings.width <= 0) throw new Error("請輸入正確的影像寬度");
+  if (!Number.isInteger(settings.height) || settings.height <= 0) throw new Error("請輸入正確的影像高度");
+  if (!Number.isInteger(settings.offset) || settings.offset < 0) throw new Error("檔頭偏移必須是非負整數");
+  if (!Number.isInteger(settings.stride) || settings.stride <= 0) throw new Error("Row stride 必須是正整數");
+  requiredFileBytes(settings.width, settings.height, settings.stride, settings.offset);
 }
 
-async function startPlayback() {
+function updateEstimate() {
   try {
-    await video.play();
+    const settings = readSettings();
+    validateSettings(settings);
+    const tight = packedRowBytes(settings.width);
+    const needed = requiredFileBytes(settings.width, settings.height, settings.stride, settings.offset);
+    $("#packedBytes").textContent = `${tight.toLocaleString()} B / row`;
+    $("#expectedBytes").textContent = `${needed.toLocaleString()} B`;
+    $("#fileMatch").textContent = sourceFile
+      ? sourceFile.size >= needed
+        ? "容量符合"
+        : `少 ${(needed - sourceFile.size).toLocaleString()} B`
+      : "等待檔案";
+    $("#fileMatch").className = sourceFile && sourceFile.size < needed ? "danger" : "";
   } catch {
-    showToast("媒體已載入，按下播放鍵即可開始");
+    $("#packedBytes").textContent = "—";
+    $("#expectedBytes").textContent = "—";
+    $("#fileMatch").textContent = "設定有誤";
+    $("#fileMatch").className = "danger";
   }
 }
 
-function markSourceReady(label) {
-  sourceLabel.textContent = label;
-  statusDot.classList.add("active");
-  emptyState.classList.add("hidden");
-  videoStage.classList.add("has-media");
-}
-
-function openFilePicker() {
-  fileInput.click();
-}
-
-function loadFile(file) {
+function setFile(file) {
   if (!file) return;
-  if (!file.type.startsWith("video/") && !file.type.startsWith("audio/")) {
-    showToast("請選擇影音檔案", "error");
-    return;
-  }
-  resetSource();
-  objectUrl = URL.createObjectURL(file);
-  video.src = objectUrl;
-  markSourceReady(file.name);
-  setLoading(true);
-  startPlayback();
+  sourceFile = file;
+  rawPixels = null;
+  renderedImage = null;
+  $("#fileName").textContent = file.name;
+  $("#fileSize").textContent = formatBytes(file.size);
+  $("#fileMeta").classList.remove("hidden");
+  $("#dropPrompt").classList.add("hidden");
+  dropZone.classList.add("has-file");
+  convertButton.disabled = false;
+  downloadButtons.forEach((button) => {
+    button.disabled = true;
+  });
+  updateEstimate();
 }
 
-function isHlsUrl(url) {
+async function convert() {
+  if (!sourceFile) return;
+  let settings;
   try {
-    return new URL(url).pathname.toLowerCase().endsWith(".m3u8");
-  } catch {
-    return false;
-  }
-}
+    settings = readSettings();
+    validateSettings(settings);
+    setBusy(true);
+    await nextFrame();
 
-function loadStream(url) {
-  const cleanUrl = url.trim();
-  if (!cleanUrl) return;
+    const bytes = new Uint8Array(await sourceFile.arrayBuffer());
+    rawPixels = unpackRaw10(bytes, settings.width, settings.height, settings);
+    const gains =
+      settings.autoWhiteBalance && BAYER_PATTERNS.includes(settings.pattern)
+        ? calculateAutoWhiteBalance(rawPixels, settings.width, settings.height, settings.pattern)
+        : { r: 1, g: 1, b: 1 };
 
-  resetSource();
-  markSourceReady(new URL(cleanUrl).hostname);
-  setLoading(true);
+    const rgba = renderRaw10(rawPixels, settings.width, settings.height, { ...settings, gains });
+    canvas.width = settings.width;
+    canvas.height = settings.height;
+    renderedImage = new ImageData(rgba, settings.width, settings.height);
+    context.putImageData(renderedImage, 0, 0);
 
-  if (isHlsUrl(cleanUrl) && Hls.isSupported()) {
-    hls = new Hls({
-      enableWorker: true,
-      lowLatencyMode: true,
-      backBufferLength: 60,
+    $("#previewEmpty").classList.add("hidden");
+    canvas.classList.remove("hidden");
+    $("#resolution").textContent = `${settings.width} × ${settings.height}`;
+    $("#previewPattern").textContent = settings.pattern === "MONO" ? "Mono" : `${settings.pattern} Bayer`;
+    $("#previewInfo").classList.remove("hidden");
+    downloadButtons.forEach((button) => {
+      button.disabled = false;
     });
-    hls.loadSource(cleanUrl);
-    hls.attachMedia(video);
-    hls.on(Hls.Events.MANIFEST_PARSED, startPlayback);
-    hls.on(Hls.Events.ERROR, (_, data) => {
-      if (!data.fatal) return;
-      setLoading(false);
-      if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-        hls.recoverMediaError();
-      } else {
-        showToast("無法讀取串流，請確認網址與 CORS 設定", "error");
-        hls.destroy();
-        hls = null;
-      }
-    });
-    return;
-  }
-
-  if (isHlsUrl(cleanUrl) && video.canPlayType("application/vnd.apple.mpegurl")) {
-    video.src = cleanUrl;
-    startPlayback();
-    return;
-  }
-
-  video.src = cleanUrl;
-  startPlayback();
-}
-
-function togglePlayback() {
-  if (!video.currentSrc) {
-    showToast("請先開啟影音來源");
-    return;
-  }
-  if (video.paused) startPlayback();
-  else video.pause();
-}
-
-function seekBy(seconds) {
-  if (!Number.isFinite(video.duration)) return;
-  video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + seconds));
-}
-
-function toggleMute() {
-  video.muted = !video.muted;
-}
-
-function toggleFullscreen() {
-  if (document.fullscreenElement) document.exitFullscreen();
-  else videoStage.requestFullscreen().catch(() => showToast("瀏覽器無法進入全螢幕", "error"));
-}
-
-function captureFrame() {
-  if (!video.currentSrc || video.readyState < 2) {
-    showToast("目前沒有可擷取的畫面", "error");
-    return;
-  }
-  if (!video.videoWidth || !video.videoHeight) {
-    showToast("音訊檔案沒有可擷取的畫面", "error");
-    return;
-  }
-
-  const canvas = document.createElement("canvas");
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  const context = canvas.getContext("2d");
-
-  try {
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        showToast("擷取失敗，來源可能禁止跨網域存取", "error");
-        return;
-      }
-      const link = document.createElement("a");
-      const captureUrl = URL.createObjectURL(blob);
-      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-      link.href = captureUrl;
-      link.download = `optic-capture-${stamp}.png`;
-      link.click();
-      URL.revokeObjectURL(captureUrl);
-      showToast(`已擷取 ${canvas.width} × ${canvas.height} 原始畫面`);
-    }, "image/png");
-  } catch {
-    showToast("來源未允許 CORS，瀏覽器無法擷取畫面", "error");
+    showToast("RAW10 解析完成，可以下載影像");
+  } catch (error) {
+    showToast(error.message || "轉換失敗，請檢查輸入設定", "error");
+  } finally {
+    setBusy(false);
   }
 }
 
-function openStreamDialog() {
-  streamDialog.showModal();
-  window.setTimeout(() => streamUrl.focus(), 50);
+async function download(format) {
+  if (!renderedImage) return;
+  const baseName = sourceFile.name.replace(/\.[^.]+$/, "") || "raw10-image";
+  let blob;
+
+  if (format === "bmp") {
+    blob = encodeBmp(renderedImage.data, renderedImage.width, renderedImage.height);
+  } else {
+    const mime = format === "jpg" ? "image/jpeg" : "image/png";
+    blob = await canvasToBlob(canvas, mime, format === "jpg" ? 0.94 : undefined);
+  }
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${baseName}.${format}`;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showToast(`已建立 ${link.download}`);
 }
 
-["#openFileButton", "#fileCard"].forEach((selector) => $(selector).addEventListener("click", openFilePicker));
-["#openStreamButton", "#streamCard"].forEach((selector) => $(selector).addEventListener("click", openStreamDialog));
-["#captureButton", "#captureCard"].forEach((selector) => $(selector).addEventListener("click", captureFrame));
+function setBusy(busy) {
+  convertButton.disabled = busy;
+  convertButton.classList.toggle("busy", busy);
+  convertButton.querySelector("span").textContent = busy ? "解析中…" : "解析並預覽";
+}
 
-$("#playButton").addEventListener("click", togglePlayback);
-$("#backButton").addEventListener("click", () => seekBy(-10));
-$("#forwardButton").addEventListener("click", () => seekBy(10));
-$("#muteButton").addEventListener("click", toggleMute);
-$("#fullscreenButton").addEventListener("click", toggleFullscreen);
-$("#helpButton").addEventListener("click", () => helpDialog.showModal());
-$("#helpCloseButton").addEventListener("click", () => helpDialog.close());
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 ** 2).toFixed(2)} MB`;
+}
 
-$("#speedButton").addEventListener("click", (event) => {
-  speedIndex = (speedIndex + 1) % playbackSpeeds.length;
-  video.playbackRate = playbackSpeeds[speedIndex];
-  event.currentTarget.textContent = `${playbackSpeeds[speedIndex]}×`;
+function canvasToBlob(target, type, quality) {
+  return new Promise((resolve, reject) => {
+    target.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("無法建立輸出檔案"))), type, quality);
+  });
+}
+
+function nextFrame() {
+  return new Promise((resolve) => requestAnimationFrame(resolve));
+}
+
+fileInput.addEventListener("change", () => setFile(fileInput.files[0]));
+dropZone.addEventListener("click", () => fileInput.click());
+dropZone.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" || event.key === " ") fileInput.click();
 });
-
-fileInput.addEventListener("change", () => loadFile(fileInput.files[0]));
-
-$("#streamForm").addEventListener("submit", (event) => {
+dropZone.addEventListener("dragover", (event) => {
   event.preventDefault();
-  if (!streamUrl.reportValidity()) return;
-  const url = streamUrl.value;
-  streamDialog.close();
-  loadStream(url);
+  dropZone.classList.add("dragging");
 });
-
-$("#demoStreamButton").addEventListener("click", () => {
-  streamUrl.value = demoStream;
-  streamDialog.close();
-  loadStream(demoStream);
-});
-
-video.addEventListener("click", togglePlayback);
-video.addEventListener("dblclick", toggleFullscreen);
-video.addEventListener("play", () => {
-  playIcon.classList.add("hidden");
-  pauseIcon.classList.remove("hidden");
-  $("#playButton").setAttribute("aria-label", "暫停");
-});
-video.addEventListener("pause", () => {
-  playIcon.classList.remove("hidden");
-  pauseIcon.classList.add("hidden");
-  $("#playButton").setAttribute("aria-label", "播放");
-});
-video.addEventListener("loadedmetadata", () => {
-  durationLabel.textContent = formatTime(video.duration);
-});
-video.addEventListener("loadeddata", () => setLoading(false));
-video.addEventListener("canplay", () => setLoading(false));
-video.addEventListener("waiting", () => setLoading(true));
-video.addEventListener("playing", () => setLoading(false));
-video.addEventListener("error", () => {
-  setLoading(false);
-  showToast("媒體載入失敗，請檢查格式、網址或跨網域設定", "error");
-});
-
-video.addEventListener("timeupdate", () => {
-  currentTime.textContent = formatTime(video.currentTime);
-  if (Number.isFinite(video.duration) && video.duration > 0) {
-    const progress = (video.currentTime / video.duration) * 100;
-    seekBar.value = Math.round(progress * 10);
-    seekBar.style.setProperty("--range-progress", `${progress}%`);
-  }
-});
-
-video.addEventListener("progress", () => {
-  if (!video.buffered.length || !Number.isFinite(video.duration)) return;
-  bufferBar.style.width = `${(video.buffered.end(video.buffered.length - 1) / video.duration) * 100}%`;
-});
-
-video.addEventListener("volumechange", () => {
-  const isMuted = video.muted || video.volume === 0;
-  volumeIcon.classList.toggle("hidden", isMuted);
-  mutedIcon.classList.toggle("hidden", !isMuted);
-  volumeBar.value = video.muted ? 0 : video.volume;
-  volumeBar.style.setProperty("--range-progress", `${volumeBar.value * 100}%`);
-});
-
-seekBar.addEventListener("input", () => {
-  if (!Number.isFinite(video.duration)) return;
-  const progress = Number(seekBar.value) / 1000;
-  video.currentTime = progress * video.duration;
-  seekBar.style.setProperty("--range-progress", `${progress * 100}%`);
-});
-
-volumeBar.addEventListener("input", () => {
-  video.muted = false;
-  video.volume = Number(volumeBar.value);
-});
-
-document.addEventListener("keydown", (event) => {
-  if (event.target.matches("input")) return;
-  const key = event.key.toLowerCase();
-  if (event.code === "Space") {
-    event.preventDefault();
-    togglePlayback();
-  } else if (event.key === "ArrowLeft") seekBy(-10);
-  else if (event.key === "ArrowRight") seekBy(10);
-  else if (key === "c") captureFrame();
-  else if (key === "f") toggleFullscreen();
-  else if (key === "m") toggleMute();
-});
-
-videoStage.addEventListener("dragover", (event) => {
+dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragging"));
+dropZone.addEventListener("drop", (event) => {
   event.preventDefault();
-  event.dataTransfer.dropEffect = "copy";
+  dropZone.classList.remove("dragging");
+  setFile(event.dataTransfer.files[0]);
 });
-videoStage.addEventListener("drop", (event) => {
+settingsForm.addEventListener("input", updateEstimate);
+settingsForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  loadFile(event.dataTransfer.files[0]);
+  convert();
 });
+downloadButtons.forEach((button) => button.addEventListener("click", () => download(button.dataset.format)));
 
-volumeBar.style.setProperty("--range-progress", "100%");
+$("#exposure").addEventListener("input", (event) => {
+  $("#exposureValue").textContent = `${Number(event.target.value) >= 0 ? "+" : ""}${event.target.value} EV`;
+});
+$("#helpButton").addEventListener("click", () => $("#helpDialog").showModal());
+$("#helpCloseButton").addEventListener("click", () => $("#helpDialog").close());
+
+updateEstimate();

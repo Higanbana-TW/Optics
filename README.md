@@ -1,23 +1,36 @@
-# Optic Player
+# RAW10 Lab
 
-一個受 VLC 啟發的輕量網頁播放器，支援：
+一個完全在瀏覽器內執行的 MIPI CSI-2 RAW10 影像轉換器，可將感測器原始資料轉成 BMP、JPG 或 PNG。
 
-- 本機 MP4、WebM、Ogg 與瀏覽器可解碼的影音格式
-- HTTP(S) 影音網址與 HLS (`.m3u8`) 網路串流
-- 播放、暫停、快轉、倒退、音量、倍速與全螢幕控制
-- 將目前影格以原始解析度擷取為 PNG
+## 功能
 
-## 開發
+- 解包標準 RAW10（每 4 pixels / 5 bytes）
+- 支援 RGGB、BGGR、GRBG、GBRG Bayer 排列與 Mono 灰階
+- 可設定影像尺寸、檔頭偏移及每列 stride / padding
+- Bayer demosaic、自動白平衡、黑白階、Gamma 與曝光調整
+- 輸出 24-bit BMP、高品質 JPG 或無損 PNG
+- 全程在本機瀏覽器處理，檔案不會上傳
+
+## 使用方式
 
 ```bash
 npm install
 npm run dev
 ```
 
-建立正式版本：
+開啟頁面後：
+
+1. 選擇 `.raw`、`.raw10`、`.bin` 或 `.mipi` 檔案。
+2. 輸入感測器有效寬度及高度。
+3. 選擇正確 Bayer 排列；無 Bayer 資料請選 Mono。
+4. 若檔案有 header 或每列 padding，填入 offset 與 stride。
+5. 點選「解析並預覽」，再下載需要的格式。
+
+> 本工具假設檔案使用標準 MIPI CSI-2 RAW10 packing。若來源是 16-bit container、左對齊 RAW10 或其他 vendor-specific packing，需先轉為標準 RAW10。
+
+## 開發與測試
 
 ```bash
+npm test
 npm run build
 ```
-
-> 網路串流需允許瀏覽器跨來源存取（CORS）。RTSP、DRM 內容與瀏覽器不支援的編碼無法直接播放。

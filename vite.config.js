@@ -2,6 +2,8 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  // Relative asset URLs so the build also works from a sub-path, e.g. GitHub Pages.
+  base: "./",
   build: {
     rollupOptions: {
       input: {

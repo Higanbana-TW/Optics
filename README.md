@@ -18,11 +18,24 @@ npm run dev     # http://localhost:5173/        播放器
 npm test        # 執行單元測試與 CLI 測試
 ```
 
-建立正式版本：
+## 執行與部署
+
+這是純前端網站，沒有後端，也沒有公開的線上網址；要用就在自己的電腦或伺服器上跑起來。
 
 ```bash
-npm run build
+npm run build     # 產生 dist/
+npm run preview   # 本機預覽正式版：http://localhost:4173/raw10.html
 ```
+
+`dist/` 是完全靜態的檔案，資源路徑採相對路徑，因此可以直接放到任何靜態空間
+（GitHub Pages、Netlify、Vercel、Nginx、S3…），放在子目錄底下也能正常運作：
+
+```bash
+npx serve dist            # 或 python3 -m http.server -d dist 8000
+```
+
+> 請用 HTTP 伺服器開啟，不要用 `file://` 直接點開 `index.html`；瀏覽器會因為安全限制擋掉 ES module。
+> 若只是想轉檔、不需要介面，直接用下方的命令列工具即可，不必啟動任何伺服器。
 
 > 網路串流需允許瀏覽器跨來源存取（CORS）。RTSP、DRM 內容與瀏覽器不支援的編碼無法直接播放。
 

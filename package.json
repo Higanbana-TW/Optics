@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test": "node --test src/mipi-raw/convert.test.js",
-    "test:raw": "python3 -m unittest -v test_mipi_raw_convert.py"
+    "test:raw": "python3 -m unittest -v test_mipi_raw_convert.py",
+    "build:standalone": "node scripts/build-standalone-raw.mjs"
   },
   "dependencies": {
     "hls.js": "^1.6.17"

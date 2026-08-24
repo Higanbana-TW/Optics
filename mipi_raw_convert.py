@@ -660,7 +660,9 @@ def main(argv: list[str] | None = None) -> int:
         if not args.inputs:
             parser.print_help()
             print(
-                "\n範例：\n"
+                "\n最簡單的用法：用瀏覽器直接開啟同一個資料夾裡的 mipi-raw.html，\n"
+                "不必安裝 Node 或 Python。拖入 .raw 後即可下載 PNG / JPG / BMP。\n"
+                "\n命令列範例：\n"
                 "  python3 mipi_raw_convert.py capture.raw -W 1920 -H 1080 --bayer RGGB -o out.png\n"
                 "  python3 mipi_raw_convert.py --make-sample 640x480 -o sample.raw"
             )

@@ -60,8 +60,10 @@ test("guessLayouts finds packed 1080p", () => {
   assert.equal(match.format, "mipi10");
 });
 
-test("Python sample bytes unpack with the JS decoder", () => {
-  const packed = makeSampleRaw10(32, 24, "RGGB");
-  assert.equal(packed.length, (32 * 24 * 5) / 4);
-  assert.ok(readFileSync(new URL("../../mipi_raw_convert.py", import.meta.url), "utf8").includes("MIPI RAW10"));
+test("standalone HTML can be opened without a dev server", () => {
+  const html = readFileSync(new URL("../../mipi-raw.html", import.meta.url), "utf8");
+  assert.match(html, /function unpackRaw10Mipi/);
+  assert.match(html, /function convertCurrent/);
+  assert.equal(html.includes('type="module"'), false);
+  assert.equal(html.includes('src="/src/'), false);
 });

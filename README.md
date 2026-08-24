@@ -27,6 +27,18 @@ npm run build
 
 把 camera sensor 的 10-bit MIPI CSI-2 RAW dump 轉成 `.bmp`、`.jpg` 或 `.png`。
 
+### 最簡單：下載後直接開網頁
+
+不需要安裝 Node 或 Python。
+
+1. 下載這個專案（GitHub 的 Code → Download ZIP）
+2. 解壓縮
+3. **雙擊 `mipi-raw.html`**，用 Chrome / Edge / Firefox 開啟
+4. 把 `.raw` 拖進去（或按「載入示範畫面」）
+5. 確認寬高與 Bayer 排列後，按 PNG / JPG / BMP 下載
+
+轉換都在瀏覽器裡完成，檔案不會上傳。不要開 `raw.html`（那是給 `npm run dev` 用的開發頁）。
+
 支援的封包：
 
 - **MIPI RAW10**：每 4 個 10-bit 像素打包成 5 bytes（CSI-2 標準）
@@ -34,14 +46,14 @@ npm run build
 
 Bayer 可選 RGGB / GRBG / GBRG / BGGR，或當灰階 Mono。
 
-### 網頁版
+### 開發時的網頁版
 
 ```bash
 npm install
 npm run dev
 ```
 
-瀏覽器開啟 `/raw.html`，拖入 `.raw` 檔即可預覽並下載。轉換在本機完成，不會上傳檔案。可按「載入示範畫面」確認 Bayer 排列。
+瀏覽器開啟 `/raw.html`。若改了轉換邏輯，執行 `npm run build:standalone` 更新 `mipi-raw.html`。
 
 ### 命令列
 

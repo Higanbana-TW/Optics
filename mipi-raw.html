@@ -1,0 +1,1314 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#121211" />
+    <title>MIPI RAW10 轉換器</title>
+    <style>
+:root {
+  color-scheme: dark;
+  font-family: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", sans-serif;
+  color: #f1f0eb;
+  background: #121211;
+  font-synthesis: none;
+  --orange: #ff5b1b;
+  --orange-bright: #ff743d;
+  --panel: #1a1a18;
+  --line: rgba(255, 255, 255, 0.1);
+  --muted: #8d8c86;
+}
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; min-width: 320px; min-height: 100%; background: #121211; }
+
+body {
+  background-image:
+    radial-gradient(circle at 50% 18%, rgba(255, 91, 27, 0.08), transparent 35%),
+    linear-gradient(rgba(255,255,255,.017) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.017) 1px, transparent 1px);
+  background-size: auto, 48px 48px, 48px 48px;
+}
+
+button, input { font: inherit; }
+button { color: inherit; }
+
+.topbar {
+  height: 72px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 0 34px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(18, 18, 17, .82);
+  backdrop-filter: blur(16px);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  width: fit-content;
+  color: #fff;
+  text-decoration: none;
+  font: 800 18px/1 "DM Mono", monospace;
+  letter-spacing: .16em;
+}
+
+.brand-mark {
+  position: relative;
+  width: 27px;
+  height: 31px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.brand-mark::before {
+  content: "";
+  position: absolute;
+  bottom: 1px;
+  width: 25px;
+  height: 6px;
+  background: #eee9dd;
+  border-radius: 50%;
+}
+
+.brand-mark span {
+  position: absolute;
+  bottom: 4px;
+  width: 0;
+  height: 0;
+  border-left: 11px solid transparent;
+  border-right: 11px solid transparent;
+  border-bottom: 25px solid var(--orange);
+}
+
+.brand-mark span:nth-child(2) { bottom: 11px; transform: scale(.72); border-bottom-color: #f4f0e8; }
+.brand-mark span:nth-child(3) { bottom: 16px; transform: scale(.38); border-bottom-color: var(--orange); }
+
+.source-state {
+  font: 500 11px/1 "DM Mono", monospace;
+  letter-spacing: .08em;
+  color: #aaa9a3;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.source-state span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 42vw;
+}
+
+.status-dot { width: 6px; height: 6px; border-radius: 50%; background: #5d5d58; }
+.status-dot.active { background: var(--orange); box-shadow: 0 0 10px rgba(255,91,27,.6); }
+
+.tool-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: center;
+}
+
+.tool-nav a {
+  color: #8d8c86;
+  text-decoration: none;
+  font: 500 11px/1 "DM Mono", monospace;
+  letter-spacing: .08em;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+}
+
+.tool-nav a.active,
+.tool-nav a:hover {
+  color: #f1f0eb;
+  border-color: var(--line);
+  background: rgba(255, 255, 255, .04);
+}
+
+.topbar-actions {
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.icon-button {
+  justify-self: end;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: transparent;
+  color: #aaa9a3;
+  cursor: pointer;
+  font: 500 13px "DM Mono", monospace;
+}
+
+main { width: min(1160px, calc(100% - 48px)); margin: 46px auto 0; }
+
+
+
+html, body { min-height: 100%; }
+.hidden { display: none !important; }
+.eyebrow {
+  margin: 0 0 12px;
+  color: var(--orange);
+  font: 500 10px/1 "DM Mono", ui-monospace, monospace;
+  letter-spacing: .2em;
+}
+h1 { margin: 0; font-size: clamp(30px, 4.1vw, 52px); line-height: 1.15; letter-spacing: -.055em; }
+h1 em { color: var(--orange); font-style: normal; }
+.empty-copy { color: var(--muted); font-size: 13px; margin: 15px 0 23px; }
+.primary-button, .secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 42px;
+  padding: 0 20px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+.primary-button { background: var(--orange); color: #fff; }
+.primary-button:hover { background: var(--orange-bright); }
+.secondary-button { border-color: rgba(255,255,255,.16); background: rgba(255,255,255,.04); }
+.secondary-button:hover { background: rgba(255,255,255,.09); }
+.toast {
+  position: absolute; z-index: 5; top: 20px; left: 50%; transform: translateX(-50%);
+  padding: 10px 15px; border: 1px solid var(--line); background: rgba(26,26,24,.94);
+  box-shadow: 0 8px 30px rgba(0,0,0,.4); color: #deddd7; font-size: 12px;
+}
+.toast.error { border-color: rgba(255,91,27,.45); }
+footer {
+  display: flex; justify-content: space-between; padding: 24px 34px; border-top: 1px solid var(--line);
+  color: #5d5d58; font: 400 9px "DM Mono", ui-monospace, monospace; letter-spacing: .1em;
+}
+dialog { width: min(500px, calc(100% - 32px)); border: 1px solid rgba(255,255,255,.13); padding: 0; color: #eee; background: #1a1a18; box-shadow: 0 24px 100px rgba(0,0,0,.65); }
+dialog::backdrop { background: rgba(0,0,0,.75); backdrop-filter: blur(5px); }
+.dialog-content { position: relative; display: flex; flex-direction: column; padding: 34px; }
+.dialog-content h2 { margin: 0; font-size: 24px; }
+.dialog-close { position: absolute; top: 15px; right: 15px; border: 0; background: transparent; color: #888; font-size: 24px; cursor: pointer; }
+.help-content dl { margin: 20px 0 0; }
+.help-content dl div { display: flex; justify-content: space-between; padding: 13px 0; border-top: 1px solid var(--line); }
+.help-content dt { font: 500 11px "DM Mono", ui-monospace, monospace; color: var(--orange); }
+.help-content dd { margin: 0; color: #aaa; font-size: 11px; }
+@media (max-width: 720px) {
+  .topbar { grid-template-columns: 1fr auto; padding: 0 18px; }
+  .source-state, .tool-nav { display: none; }
+  main { width: calc(100% - 24px); margin-top: 22px; }
+  footer { padding-inline: 18px; }
+}
+
+.converter-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) 1fr;
+  gap: 18px;
+  margin: 28px 0 50px;
+  align-items: stretch;
+}
+
+.control-panel,
+.preview-panel {
+  border: 1px solid var(--line);
+  background: rgba(26, 26, 24, .78);
+}
+
+.control-panel {
+  padding: 18px 18px 14px;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 150px);
+  min-height: 520px;
+}
+
+.preview-panel { min-height: 520px; position: relative; overflow: hidden; }
+
+.control-panel h2 { margin: 0 0 12px; font-size: 22px; }
+
+.drop-zone {
+  display: grid;
+  gap: 6px;
+  place-items: center;
+  min-height: 86px;
+  padding: 14px;
+  border: 1px dashed rgba(255, 255, 255, .18);
+  background: rgba(0, 0, 0, .25);
+  cursor: pointer;
+  text-align: center;
+}
+
+.drop-zone:hover,
+.drop-zone.dragover {
+  border-color: var(--orange);
+  background: rgba(255, 91, 27, .06);
+}
+
+.drop-zone strong { font-size: 13px; }
+.drop-zone small,
+.file-meta {
+  color: var(--muted);
+  font: 400 11px "DM Mono", monospace;
+}
+
+.file-meta { margin: 10px 0 0; min-height: 16px; }
+
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.panel-scroll {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  margin-top: 12px;
+  padding-right: 4px;
+}
+
+.panel-actions {
+  flex-shrink: 0;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+  margin-top: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.field.span-2 { grid-column: span 2; }
+
+.field label,
+.field span {
+  color: #bbb;
+  font-size: 11px;
+}
+
+.field input,
+.field select {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid #3c3c38;
+  background: #111;
+  color: #eee;
+  font: 11px "DM Mono", monospace;
+}
+
+.field input:focus,
+.field select:focus {
+  outline: 0;
+  border-color: var(--orange);
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.button-row .primary-button,
+.button-row .secondary-button {
+  flex: 1;
+  min-width: 120px;
+}
+
+.save-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.save-row button:disabled,
+#convertButton:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.preview-wrap {
+  position: relative;
+  min-height: 520px;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(60, 59, 54, .4), transparent 34%),
+    #090909;
+  display: grid;
+  place-items: center;
+}
+
+.preview-wrap canvas {
+  max-width: 100%;
+  max-height: 72vh;
+  width: auto;
+  height: auto;
+  display: none;
+}
+
+.preview-wrap.has-image canvas { display: block; }
+
+.preview-empty {
+  text-align: center;
+  padding: 30px;
+}
+
+.preview-empty h1 {
+  font-size: clamp(28px, 3.5vw, 44px);
+}
+
+.hint {
+  margin: 14px 0 0;
+  color: #666660;
+  font: 400 10px/1.6 "DM Mono", monospace;
+}
+
+@media (max-width: 900px) {
+  .converter-layout { grid-template-columns: 1fr; }
+  .preview-wrap, .preview-panel { min-height: 420px; }
+  .tool-nav { display: none; }
+}
+
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <span class="brand" aria-label="Optic">
+          <span class="brand-mark" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </span>
+          <span>OPTIC</span>
+        </span>
+        <div class="source-state">
+          <span class="status-dot"></span>
+          <span id="sourceLabel">尚未載入 RAW</span>
+        </div>
+        <div class="topbar-actions">
+          <button class="icon-button" id="helpButton" aria-label="使用說明" title="使用說明">?</button>
+        </div>
+      </header>
+
+      <main>
+        <section class="converter-layout" aria-label="MIPI RAW10 轉換器">
+          <aside class="control-panel">
+            <p class="eyebrow">MIPI RAW10</p>
+            <h2>10-bit RAW 轉圖</h2>
+            <div class="drop-zone" id="dropZone" role="button" tabindex="0">
+              <strong>拖放 RAW 檔到這裡</strong>
+              <small>支援 .raw / .RAW10 / 任意二進位 dump</small>
+            </div>
+            <p class="file-meta" id="fileMeta"></p>
+            <div class="button-row">
+              <button class="primary-button" id="openFileButton" type="button">開啟檔案</button>
+              <button class="secondary-button" id="sampleButton" type="button">載入示範畫面</button>
+            </div>
+            <div class="panel-scroll">
+            <div class="field-grid">
+              <label class="field span-2">
+                <span>可能的解析度</span>
+                <select id="guessSelect">
+                  <option value="">載入檔案後自動猜測</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>寬度</span>
+                <input id="width" type="number" min="8" step="4" placeholder="1920" />
+              </label>
+              <label class="field">
+                <span>高度</span>
+                <input id="height" type="number" min="8" step="1" placeholder="1080" />
+              </label>
+              <label class="field">
+                <span>封包格式</span>
+                <select id="format">
+                  <option value="mipi10">MIPI RAW10（4 像素 / 5 bytes）</option>
+                  <option value="u16le">Unpacked 16-bit LE（低 10 bit）</option>
+                  <option value="u16msb">Unpacked 16-bit LE（高 10 bit）</option>
+                  <option value="u16be">Unpacked 16-bit BE</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Bayer 排列</span>
+                <select id="bayer">
+                  <option value="RGGB">RGGB</option>
+                  <option value="GRBG">GRBG</option>
+                  <option value="GBRG">GBRG</option>
+                  <option value="BGGR">BGGR</option>
+                  <option value="mono">Mono（灰階）</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>檔頭 offset</span>
+                <input id="offset" type="number" min="0" step="1" value="0" />
+              </label>
+              <label class="field">
+                <span>列跨距 stride</span>
+                <input id="stride" type="number" min="0" step="1" placeholder="自動" />
+              </label>
+              <label class="field">
+                <span>影格</span>
+                <input id="frame" type="number" min="0" step="1" value="0" />
+              </label>
+              <label class="field">
+                <span>黑電平</span>
+                <input id="blackLevel" type="number" min="0" max="1023" step="1" value="0" />
+              </label>
+              <label class="field">
+                <span>白平衡</span>
+                <select id="whiteBalance">
+                  <option value="auto">自動（灰世界）</option>
+                  <option value="off">關閉</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>10-bit → 8-bit</span>
+                <select id="tone">
+                  <option value="percentile">百分位拉伸（較好看）</option>
+                  <option value="shift">直接右移 2 bit</option>
+                  <option value="stretch">最小-最大拉伸</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>JPEG 品質</span>
+                <input id="jpegQuality" type="number" min="40" max="95" step="1" value="92" />
+              </label>
+            </div>
+            </div>
+            <div class="panel-actions">
+              <div class="button-row">
+                <button class="primary-button" id="convertButton" type="button">轉換預覽</button>
+              </div>
+              <div class="save-row">
+                <button class="secondary-button" data-save="png" type="button" disabled>PNG</button>
+                <button class="secondary-button" data-save="jpeg" type="button" disabled>JPG</button>
+                <button class="secondary-button" data-save="bmp" type="button" disabled>BMP</button>
+              </div>
+              <p class="hint">雙擊這個 HTML 就能用，不必安裝 Node。轉換在瀏覽器本機完成，檔案不會上傳。</p>
+            </div>
+          </aside>
+          <section class="preview-panel">
+            <div class="preview-wrap" id="previewWrap">
+              <div class="preview-empty" id="emptyPreview">
+                <p class="eyebrow">READY TO CONVERT</p>
+                <h1>把 RAW<br /><em>變成圖片。</em></h1>
+                <p class="empty-copy">載入 sensor dump，或先用示範色卡確認 Bayer 排列。</p>
+              </div>
+              <canvas id="preview" aria-label="轉換預覽"></canvas>
+              <div class="toast hidden" id="toast" role="status"></div>
+            </div>
+          </section>
+        </section>
+      </main>
+      <footer>
+        <span>OPTIC RAW10</span>
+        <span>直接開啟本檔即可使用</span>
+      </footer>
+    </div>
+    <input id="fileInput" type="file" accept=".raw,.RAW,.raw10,.RAW10,.bin,.img,*" hidden />
+    <dialog id="helpDialog">
+      <div class="dialog-content help-content">
+        <button class="dialog-close" id="helpCloseButton" aria-label="關閉">×</button>
+        <p class="eyebrow">HOW TO USE</p>
+        <h2>使用方式</h2>
+        <dl>
+          <div><dt>1</dt><dd>雙擊 mipi-raw.html 用瀏覽器開啟</dd></div>
+          <div><dt>2</dt><dd>拖入 .raw，或按「載入示範畫面」</dd></div>
+          <div><dt>3</dt><dd>確認寬高與 Bayer 後，下載 PNG / JPG / BMP</dd></div>
+        </dl>
+      </div>
+    </dialog>
+    <script>
+/** 10-bit MIPI CSI-2 RAW unpacking, Bayer demosaic, and BMP encoding. */
+
+const MAX_10BIT = 1023;
+const BAYER_PATTERNS = ["RGGB", "GRBG", "GBRG", "BGGR"];
+
+const LAYOUTS = {
+  RGGB: [
+    [0, 1],
+    [1, 2],
+  ],
+  GRBG: [
+    [1, 0],
+    [2, 1],
+  ],
+  GBRG: [
+    [1, 2],
+    [0, 1],
+  ],
+  BGGR: [
+    [2, 1],
+    [1, 0],
+  ],
+};
+
+const COMMON_RESOLUTIONS = [
+  [320, 240],
+  [640, 480],
+  [800, 600],
+  [1024, 768],
+  [1280, 720],
+  [1280, 800],
+  [1280, 960],
+  [1440, 1080],
+  [1600, 1200],
+  [1632, 1224],
+  [1920, 1080],
+  [1920, 1200],
+  [2048, 1536],
+  [2304, 1296],
+  [2304, 1536],
+  [2304, 1728],
+  [2560, 1440],
+  [2592, 1944],
+  [3264, 1836],
+  [3264, 2448],
+  [3280, 2464],
+  [3840, 2160],
+  [4000, 3000],
+  [4032, 2268],
+  [4032, 3024],
+  [4056, 3040],
+  [4096, 2160],
+  [4096, 3072],
+  [4208, 3120],
+  [4624, 2604],
+  [4624, 3472],
+  [4656, 3496],
+  [5344, 4016],
+  [8000, 6000],
+  [9152, 6944],
+  [9248, 6944],
+];
+
+const ASPECTS = [
+  [16, 9],
+  [16, 10],
+  [4, 3],
+  [3, 2],
+  [5, 4],
+  [1, 1],
+  [21, 9],
+];
+
+function packedRowBytes(width) {
+  if (width % 4 !== 0) {
+    throw new Error("MIPI RAW10 寬度必須是 4 的倍數");
+  }
+  return (width * 5) / 4;
+}
+
+function packRaw10Mipi(pixels, width, height) {
+  const rowBytes = packedRowBytes(width);
+  const out = new Uint8Array(rowBytes * height);
+  let di = 0;
+  for (let y = 0; y < height; y++) {
+    const row = y * width;
+    for (let x = 0; x < width; x += 4) {
+      const p0 = pixels[row + x];
+      const p1 = pixels[row + x + 1];
+      const p2 = pixels[row + x + 2];
+      const p3 = pixels[row + x + 3];
+      out[di] = (p0 >> 2) & 0xff;
+      out[di + 1] = (p1 >> 2) & 0xff;
+      out[di + 2] = (p2 >> 2) & 0xff;
+      out[di + 3] = (p3 >> 2) & 0xff;
+      out[di + 4] =
+        (p0 & 0x03) | ((p1 & 0x03) << 2) | ((p2 & 0x03) << 4) | ((p3 & 0x03) << 6);
+      di += 5;
+    }
+  }
+  return out;
+}
+
+function unpackRaw10Mipi(data, width, height, { offset = 0, stride } = {}) {
+  const rowBytes = packedRowBytes(width);
+  const rowStride = stride ?? rowBytes;
+  if (rowStride < rowBytes) {
+    throw new Error(`列跨距 ${rowStride} 小於 RAW10 列長 ${rowBytes}`);
+  }
+  const needed = offset + rowStride * height;
+  if (data.byteLength < needed) {
+    throw new Error(`檔案資料不足：需要 ${needed} bytes，實際 ${data.byteLength} bytes`);
+  }
+
+  const src = data instanceof Uint8Array ? data : new Uint8Array(data);
+  const pixels = new Uint16Array(width * height);
+  let pi = 0;
+  for (let y = 0; y < height; y++) {
+    let si = offset + y * rowStride;
+    for (let x = 0; x < width; x += 4) {
+      const b0 = src[si];
+      const b1 = src[si + 1];
+      const b2 = src[si + 2];
+      const b3 = src[si + 3];
+      const b4 = src[si + 4];
+      pixels[pi] = (b0 << 2) | (b4 & 0x03);
+      pixels[pi + 1] = (b1 << 2) | ((b4 >> 2) & 0x03);
+      pixels[pi + 2] = (b2 << 2) | ((b4 >> 4) & 0x03);
+      pixels[pi + 3] = (b3 << 2) | ((b4 >> 6) & 0x03);
+      pi += 4;
+      si += 5;
+    }
+  }
+  return pixels;
+}
+
+function unpackU16(data, width, height, { offset = 0, stride, littleEndian = true, msbAligned = false } = {}) {
+  const rowBytes = width * 2;
+  const rowStride = stride ?? rowBytes;
+  if (rowStride < rowBytes) {
+    throw new Error(`列跨距 ${rowStride} 小於 16-bit 列長 ${rowBytes}`);
+  }
+  const needed = offset + rowStride * height;
+  if (data.byteLength < needed) {
+    throw new Error(`檔案資料不足：需要 ${needed} bytes，實際 ${data.byteLength} bytes`);
+  }
+
+  const view = new DataView(data.buffer ?? data, (data.byteOffset ?? 0) + offset);
+  const pixels = new Uint16Array(width * height);
+  for (let y = 0; y < height; y++) {
+    const rowOffset = y * rowStride;
+    for (let x = 0; x < width; x++) {
+      let value = view.getUint16(rowOffset + x * 2, littleEndian);
+      if (msbAligned) value >>= 6;
+      pixels[y * width + x] = value & MAX_10BIT;
+    }
+  }
+  return pixels;
+}
+
+function clamp(value, lo, hi) {
+  return value < lo ? lo : value > hi ? hi : value;
+}
+
+function sample(raw, width, height, x, y) {
+  return raw[clamp(y, 0, height - 1) * width + clamp(x, 0, width - 1)];
+}
+
+function mosaicBayer(rgb, width, height, pattern = "RGGB") {
+  const layout = LAYOUTS[pattern];
+  if (!layout) throw new Error(`不支援的 Bayer 排列：${pattern}`);
+  const raw = new Uint16Array(width * height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const channel = layout[y & 1][x & 1];
+      raw[y * width + x] = rgb[(y * width + x) * 3 + channel];
+    }
+  }
+  return raw;
+}
+
+function demosaicBilinear(raw, width, height, pattern = "RGGB") {
+  const layout = LAYOUTS[pattern];
+  if (!layout) throw new Error(`不支援的 Bayer 排列：${pattern}`);
+
+  let redRow = 0;
+  let blueRow = 1;
+  for (let row = 0; row < 2; row++) {
+    for (let col = 0; col < 2; col++) {
+      if (layout[row][col] === 0) redRow = row;
+      if (layout[row][col] === 2) blueRow = row;
+    }
+  }
+
+  const rgb = new Float32Array(width * height * 3);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const channel = layout[y & 1][x & 1];
+      const center = sample(raw, width, height, x, y);
+      let r = 0;
+      let g = 0;
+      let b = 0;
+
+      if (channel === 1) {
+        g = center;
+        if ((y & 1) === redRow) {
+          r = (sample(raw, width, height, x - 1, y) + sample(raw, width, height, x + 1, y)) * 0.5;
+          b = (sample(raw, width, height, x, y - 1) + sample(raw, width, height, x, y + 1)) * 0.5;
+        } else {
+          b = (sample(raw, width, height, x - 1, y) + sample(raw, width, height, x + 1, y)) * 0.5;
+          r = (sample(raw, width, height, x, y - 1) + sample(raw, width, height, x, y + 1)) * 0.5;
+        }
+      } else if (channel === 0) {
+        r = center;
+        g =
+          (sample(raw, width, height, x - 1, y) +
+            sample(raw, width, height, x + 1, y) +
+            sample(raw, width, height, x, y - 1) +
+            sample(raw, width, height, x, y + 1)) *
+          0.25;
+        b =
+          (sample(raw, width, height, x - 1, y - 1) +
+            sample(raw, width, height, x + 1, y - 1) +
+            sample(raw, width, height, x - 1, y + 1) +
+            sample(raw, width, height, x + 1, y + 1)) *
+          0.25;
+      } else {
+        b = center;
+        g =
+          (sample(raw, width, height, x - 1, y) +
+            sample(raw, width, height, x + 1, y) +
+            sample(raw, width, height, x, y - 1) +
+            sample(raw, width, height, x, y + 1)) *
+          0.25;
+        r =
+          (sample(raw, width, height, x - 1, y - 1) +
+            sample(raw, width, height, x + 1, y - 1) +
+            sample(raw, width, height, x - 1, y + 1) +
+            sample(raw, width, height, x + 1, y + 1)) *
+          0.25;
+      }
+
+      const i = (y * width + x) * 3;
+      rgb[i] = r;
+      rgb[i + 1] = g;
+      rgb[i + 2] = b;
+    }
+  }
+  return rgb;
+}
+
+function applyBlackLevel(raw, blackLevel) {
+  if (!blackLevel) return raw;
+  const out = new Float32Array(raw.length);
+  for (let i = 0; i < raw.length; i++) {
+    const value = raw[i] - blackLevel;
+    out[i] = value < 0 ? 0 : value;
+  }
+  return out;
+}
+
+function applyWhiteBalance(rgb, gains) {
+  const out = new Float32Array(rgb.length);
+  let gr = 1;
+  let gg = 1;
+  let gb = 1;
+  if (!gains) {
+    let rSum = 0;
+    let gSum = 0;
+    let bSum = 0;
+    let rCount = 0;
+    let gCount = 0;
+    let bCount = 0;
+    for (let i = 0; i < rgb.length; i += 3) {
+      if (rgb[i] > 0) {
+        rSum += rgb[i];
+        rCount += 1;
+      }
+      if (rgb[i + 1] > 0) {
+        gSum += rgb[i + 1];
+        gCount += 1;
+      }
+      if (rgb[i + 2] > 0) {
+        bSum += rgb[i + 2];
+        bCount += 1;
+      }
+    }
+    const rMean = rCount ? rSum / rCount : 1;
+    const gMean = gCount ? gSum / gCount : 1;
+    const bMean = bCount ? bSum / bCount : 1;
+    gr = gMean / Math.max(rMean, 1e-6);
+    gg = 1;
+    gb = gMean / Math.max(bMean, 1e-6);
+  } else {
+    [gr, gg, gb] = gains;
+  }
+  for (let i = 0; i < rgb.length; i += 3) {
+    out[i] = rgb[i] * gr;
+    out[i + 1] = rgb[i + 1] * gg;
+    out[i + 2] = rgb[i + 2] * gb;
+  }
+  return out;
+}
+
+function toneMapToU8(rgb, mode = "shift") {
+  const out = new Uint8Array(rgb.length);
+  if (mode === "shift") {
+    const scale = 255 / MAX_10BIT;
+    for (let i = 0; i < rgb.length; i++) {
+      const value = rgb[i] * scale;
+      out[i] = value < 0 ? 0 : value > 255 ? 255 : value;
+    }
+    return out;
+  }
+
+  let lo = Infinity;
+  let hi = -Infinity;
+  if (mode === "percentile") {
+    const sampleCount = Math.min(rgb.length, 200000);
+    const step = Math.max(1, Math.floor(rgb.length / sampleCount));
+    const samples = [];
+    for (let i = 0; i < rgb.length; i += step) samples.push(rgb[i]);
+    samples.sort((a, b) => a - b);
+    lo = samples[Math.floor(samples.length * 0.01)];
+    hi = samples[Math.min(samples.length - 1, Math.floor(samples.length * 0.995))];
+  } else {
+    for (let i = 0; i < rgb.length; i++) {
+      const value = rgb[i];
+      if (value < lo) lo = value;
+      if (value > hi) hi = value;
+    }
+  }
+
+  const scale = hi <= lo ? 0 : 255 / (hi - lo);
+  for (let i = 0; i < rgb.length; i++) {
+    const value = (rgb[i] - lo) * scale;
+    out[i] = value < 0 ? 0 : value > 255 ? 255 : value;
+  }
+  return out;
+}
+
+function rawToRgb(rawPixels, width, height, options = {}) {
+  const {
+    bayer = "RGGB",
+    blackLevel = 0,
+    whiteBalance = "auto",
+    tone = "shift",
+  } = options;
+  const linear = applyBlackLevel(rawPixels, blackLevel);
+  let rgb;
+  if (bayer === "mono") {
+    rgb = new Float32Array(width * height * 3);
+    for (let i = 0; i < linear.length; i++) {
+      const value = linear[i];
+      rgb[i * 3] = value;
+      rgb[i * 3 + 1] = value;
+      rgb[i * 3 + 2] = value;
+    }
+  } else {
+    rgb = demosaicBilinear(linear, width, height, bayer);
+  }
+
+  let gains = [1, 1, 1];
+  if (whiteBalance === "auto" && bayer !== "mono") gains = null;
+  else if (Array.isArray(whiteBalance)) gains = whiteBalance;
+  rgb = applyWhiteBalance(rgb, gains);
+  return toneMapToU8(rgb, tone);
+}
+
+function expectedFrameBytes(width, height, fmt, stride) {
+  if (fmt === "mipi10") {
+    return (stride ?? packedRowBytes(width)) * height;
+  }
+  return (stride ?? width * 2) * height;
+}
+
+function guessLayouts(fileSize, offset = 0) {
+  const payload = fileSize - offset;
+  if (payload <= 0) return [];
+  const ranked = [];
+
+  const add = (width, height, format, stride, score) => {
+    if (width < 8 || height < 8 || stride <= 0) return;
+    const frame = stride * height;
+    if (frame <= 0 || payload < frame) return;
+    const frames = payload % frame === 0 ? payload / frame : 1;
+    if (payload % frame !== 0 && payload - frame > 65536) return;
+    ranked.push({ width, height, format, stride, frames, score });
+  };
+
+  for (const [width, height] of COMMON_RESOLUTIONS) {
+    if (width % 4 === 0) add(width, height, "mipi10", packedRowBytes(width), 100);
+    add(width, height, "u16le", width * 2, 80);
+  }
+
+  if ((payload * 8) % 10 === 0) {
+    const pixels = (payload * 8) / 10;
+    for (const [aw, ah] of ASPECTS) {
+      let width = Math.round(Math.sqrt((pixels * aw) / ah));
+      width -= width % 4;
+      if (width > 0 && pixels % width === 0) {
+        const height = pixels / width;
+        add(width, height, "mipi10", packedRowBytes(width), 60);
+      }
+    }
+  }
+
+  if (payload % 2 === 0) {
+    const pixels = payload / 2;
+    for (const [aw, ah] of ASPECTS) {
+      const width = Math.round(Math.sqrt((pixels * aw) / ah));
+      if (width > 0 && pixels % width === 0) {
+        add(width, pixels / width, "u16le", width * 2, 40);
+      }
+    }
+  }
+
+  const unique = new Map();
+  for (const item of ranked) {
+    const key = `${item.width}x${item.height}-${item.format}-${item.stride}-${item.frames}`;
+    const prev = unique.get(key);
+    if (!prev || item.score > prev.score) unique.set(key, item);
+  }
+  return [...unique.values()].sort((a, b) => b.score - a.score || b.width * b.height - a.width * a.height);
+}
+
+function makeSampleRgb(width = 640, height = 480) {
+  const rgb = new Uint16Array(width * height * 3);
+  const colors = [
+    [MAX_10BIT, 0, 0],
+    [0, MAX_10BIT, 0],
+    [0, 0, MAX_10BIT],
+    [MAX_10BIT, MAX_10BIT, MAX_10BIT],
+    [0, MAX_10BIT, MAX_10BIT],
+    [MAX_10BIT, 0, MAX_10BIT],
+    [MAX_10BIT, MAX_10BIT, 0],
+    [MAX_10BIT >> 1, MAX_10BIT >> 1, MAX_10BIT >> 1],
+  ];
+  const patchH = Math.max(1, Math.floor((height * 2) / 3));
+  const patchW = Math.floor(width / colors.length);
+  for (let index = 0; index < colors.length; index += 1) {
+    const x0 = index * patchW;
+    const x1 = index === colors.length - 1 ? width : (index + 1) * patchW;
+    const [r, g, b] = colors[index];
+    for (let y = 0; y < patchH; y += 1) {
+      for (let x = x0; x < x1; x += 1) {
+        const i = (y * width + x) * 3;
+        rgb[i] = r;
+        rgb[i + 1] = g;
+        rgb[i + 2] = b;
+      }
+    }
+  }
+  for (let x = 0; x < width; x += 1) {
+    const value = Math.round((x / Math.max(width - 1, 1)) * MAX_10BIT);
+    for (let y = patchH; y < height; y += 1) {
+      const i = (y * width + x) * 3;
+      rgb[i] = value;
+      rgb[i + 1] = value;
+      rgb[i + 2] = value;
+    }
+  }
+  return rgb;
+}
+
+function makeSampleRaw10(width = 640, height = 480, pattern = "RGGB") {
+  const rgb = makeSampleRgb(width, height);
+  const cfa = mosaicBayer(rgb, width, height, pattern);
+  return packRaw10Mipi(cfa, width, height);
+}
+
+function encodeBmp(rgb, width, height) {
+  const rowSize = Math.ceil((width * 3) / 4) * 4;
+  const pixelBytes = rowSize * height;
+  const fileSize = 54 + pixelBytes;
+  const buffer = new ArrayBuffer(fileSize);
+  const view = new DataView(buffer);
+  const bytes = new Uint8Array(buffer);
+
+  view.setUint8(0, 0x42);
+  view.setUint8(1, 0x4d);
+  view.setUint32(2, fileSize, true);
+  view.setUint32(10, 54, true);
+  view.setUint32(14, 40, true);
+  view.setInt32(18, width, true);
+  view.setInt32(22, height, true);
+  view.setUint16(26, 1, true);
+  view.setUint16(28, 24, true);
+  view.setUint32(34, pixelBytes, true);
+
+  for (let y = 0; y < height; y += 1) {
+    let dest = 54 + (height - 1 - y) * rowSize;
+    const srcRow = y * width * 3;
+    for (let x = 0; x < width; x += 1) {
+      const src = srcRow + x * 3;
+      bytes[dest] = rgb[src + 2];
+      bytes[dest + 1] = rgb[src + 1];
+      bytes[dest + 2] = rgb[src];
+      dest += 3;
+    }
+  }
+  return new Blob([buffer], { type: "image/bmp" });
+}
+
+function rgbToImageData(rgb, width, height) {
+  const imageData = typeof ImageData === "function" ? new ImageData(width, height) : { data: new Uint8ClampedArray(width * height * 4), width, height };
+  const data = imageData.data;
+  for (let i = 0, p = 0; i < rgb.length; i += 3, p += 4) {
+    data[p] = rgb[i];
+    data[p + 1] = rgb[i + 1];
+    data[p + 2] = rgb[i + 2];
+    data[p + 3] = 255;
+  }
+  return imageData;
+}
+
+function readRawPixels(data, width, height, fmt, options = {}) {
+  const { offset = 0, stride, frame = 0 } = options;
+  const frameBytes = expectedFrameBytes(width, height, fmt, stride);
+  const start = offset + frame * frameBytes;
+  if (fmt === "mipi10") return unpackRaw10Mipi(data, width, height, { offset: start, stride });
+  if (fmt === "u16le") return unpackU16(data, width, height, { offset: start, stride, littleEndian: true });
+  if (fmt === "u16be") return unpackU16(data, width, height, { offset: start, stride, littleEndian: false });
+  if (fmt === "u16msb") {
+    return unpackU16(data, width, height, { offset: start, stride, littleEndian: true, msbAligned: true });
+  }
+  throw new Error(`不支援的封包格式：${fmt}`);
+}
+
+
+
+const $ = (selector) => document.querySelector(selector);
+
+const fileInput = $("#fileInput");
+const dropZone = $("#dropZone");
+const preview = $("#preview");
+const previewWrap = $("#previewWrap");
+const emptyPreview = $("#emptyPreview");
+const fileMeta = $("#fileMeta");
+const guessSelect = $("#guessSelect");
+const widthInput = $("#width");
+const heightInput = $("#height");
+const formatSelect = $("#format");
+const bayerSelect = $("#bayer");
+const offsetInput = $("#offset");
+const strideInput = $("#stride");
+const frameInput = $("#frame");
+const blackLevelInput = $("#blackLevel");
+const wbSelect = $("#whiteBalance");
+const toneSelect = $("#tone");
+const jpegQuality = $("#jpegQuality");
+const toast = $("#toast");
+const statusDot = $(".status-dot");
+const sourceLabel = $("#sourceLabel");
+const convertButton = $("#convertButton");
+const helpDialog = $("#helpDialog");
+
+let fileBytes = null;
+let fileName = "sample.raw";
+let lastRgb = null;
+let lastSize = { width: 0, height: 0 };
+let toastTimer = null;
+
+function showToast(message, type = "") {
+  window.clearTimeout(toastTimer);
+  toast.textContent = message;
+  toast.className = `toast ${type}`.trim();
+  toastTimer = window.setTimeout(() => toast.classList.add("hidden"), 3600);
+}
+
+function fillGuesses(bytesLength) {
+  const offset = Number(offsetInput.value) || 0;
+  const guesses = guessLayouts(bytesLength, offset);
+  guessSelect.innerHTML = "";
+  if (!guesses.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "無法自動猜測，請手動輸入寬高";
+    guessSelect.append(option);
+    return guesses;
+  }
+  for (const [index, item] of guesses.entries()) {
+    const option = document.createElement("option");
+    option.value = String(index);
+    option.textContent = `${item.width} × ${item.height} · ${item.format} · ${item.frames} 影格`;
+    guessSelect.append(option);
+  }
+  applyGuess(guesses[0]);
+  return guesses;
+}
+
+function applyGuess(item) {
+  widthInput.value = item.width;
+  heightInput.value = item.height;
+  formatSelect.value = item.format;
+  if (!strideInput.value) strideInput.placeholder = String(item.stride);
+}
+
+function setSource(name, bytes) {
+  fileBytes = bytes;
+  fileName = name;
+  sourceLabel.textContent = name;
+  statusDot.classList.add("active");
+  fileMeta.textContent = `${name} · ${(bytes.byteLength / 1024).toFixed(1)} KB`;
+  fillGuesses(bytes.byteLength);
+  convertCurrent();
+}
+
+async function loadFile(file) {
+  if (!file) return;
+  const buffer = await file.arrayBuffer();
+  setSource(file.name, new Uint8Array(buffer));
+  showToast(`已載入 ${file.name}`);
+}
+
+function currentOptions() {
+  const width = Number(widthInput.value);
+  const height = Number(heightInput.value);
+  const fmt = formatSelect.value;
+  const offset = Number(offsetInput.value) || 0;
+  const strideValue = Number(strideInput.value);
+  const stride = strideValue > 0 ? strideValue : undefined;
+  const frame = Number(frameInput.value) || 0;
+  return { width, height, fmt, offset, stride, frame };
+}
+
+function convertCurrent() {
+  if (!fileBytes) {
+    showToast("請先載入 RAW 檔，或產生示範畫面", "error");
+    return null;
+  }
+  const { width, height, fmt, offset, stride, frame } = currentOptions();
+  if (!width || !height) {
+    showToast("請輸入寬度與高度", "error");
+    return null;
+  }
+  try {
+    if (fmt === "mipi10") packedRowBytes(width);
+    const needed = offset + expectedFrameBytes(width, height, fmt, stride) * (frame + 1);
+    if (fileBytes.byteLength < needed) {
+      throw new Error(`資料不足：目前設定需要 ${needed} bytes`);
+    }
+    const pixels = readRawPixels(fileBytes, width, height, fmt, { offset, stride, frame });
+    const rgb = rawToRgb(pixels, width, height, {
+      bayer: bayerSelect.value,
+      blackLevel: Number(blackLevelInput.value) || 0,
+      whiteBalance: wbSelect.value === "off" ? [1, 1, 1] : "auto",
+      tone: toneSelect.value,
+    });
+    lastRgb = rgb;
+    lastSize = { width, height };
+    drawPreview(rgb, width, height);
+    emptyPreview.classList.add("hidden");
+    previewWrap.classList.add("has-image");
+    convertButton.disabled = false;
+    document.querySelectorAll("[data-save]").forEach((button) => {
+      button.disabled = false;
+    });
+    showToast(`已轉換 ${width} × ${height}`);
+    return rgb;
+  } catch (error) {
+    showToast(error.message, "error");
+    return null;
+  }
+}
+
+function drawPreview(rgb, width, height) {
+  const maxEdge = 1600;
+  const scale = Math.min(1, maxEdge / Math.max(width, height));
+  const drawW = Math.max(1, Math.round(width * scale));
+  const drawH = Math.max(1, Math.round(height * scale));
+  preview.width = drawW;
+  preview.height = drawH;
+  const ctx = preview.getContext("2d");
+  if (scale === 1) {
+    ctx.putImageData(rgbToImageData(rgb, width, height), 0, 0);
+    return;
+  }
+  const full = document.createElement("canvas");
+  full.width = width;
+  full.height = height;
+  full.getContext("2d").putImageData(rgbToImageData(rgb, width, height), 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(full, 0, 0, drawW, drawH);
+}
+
+function stemName() {
+  return fileName.replace(/\.[^.]+$/, "") || "mipi-raw";
+}
+
+function canvasBlob(mime, quality) {
+  const { width, height } = lastSize;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  canvas.getContext("2d").putImageData(rgbToImageData(lastRgb, width, height), 0, 0);
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) reject(new Error("瀏覽器無法編碼這個格式"));
+      else resolve(blob);
+    }, mime, quality);
+  });
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+async function saveAs(kind) {
+  if (!lastRgb && !convertCurrent()) return;
+  const name = stemName();
+  try {
+    if (kind === "bmp") {
+      downloadBlob(encodeBmp(lastRgb, lastSize.width, lastSize.height), `${name}.bmp`);
+    } else if (kind === "png") {
+      downloadBlob(await canvasBlob("image/png"), `${name}.png`);
+    } else {
+      const quality = Number(jpegQuality.value) / 100;
+      downloadBlob(await canvasBlob("image/jpeg", quality), `${name}.jpg`);
+    }
+    showToast(`已下載 ${name}.${kind === "jpeg" ? "jpg" : kind}`);
+  } catch (error) {
+    showToast(error.message, "error");
+  }
+}
+
+dropZone.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  dropZone.classList.add("dragover");
+});
+dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
+dropZone.addEventListener("drop", (event) => {
+  event.preventDefault();
+  dropZone.classList.remove("dragover");
+  loadFile(event.dataTransfer.files[0]);
+});
+dropZone.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    fileInput.click();
+  }
+});
+dropZone.addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", () => loadFile(fileInput.files[0]));
+
+guessSelect.addEventListener("change", () => {
+  if (!fileBytes) return;
+  const guesses = guessLayouts(fileBytes.byteLength, Number(offsetInput.value) || 0);
+  const item = guesses[Number(guessSelect.value)];
+  if (item) {
+    applyGuess(item);
+    convertCurrent();
+  }
+});
+
+$("#openFileButton").addEventListener("click", () => fileInput.click());
+$("#sampleButton").addEventListener("click", () => {
+  bayerSelect.value = "RGGB";
+  const bytes = makeSampleRaw10(640, 480, "RGGB");
+  setSource("sample_640x480_rggb.raw", bytes);
+});
+convertButton.addEventListener("click", convertCurrent);
+document.querySelectorAll("[data-save]").forEach((button) => {
+  button.addEventListener("click", () => saveAs(button.dataset.save));
+});
+$("#helpButton").addEventListener("click", () => helpDialog.showModal());
+$("#helpCloseButton").addEventListener("click", () => helpDialog.close());
+
+["width", "height", "format", "bayer", "offset", "stride", "frame", "blackLevel", "whiteBalance", "tone"].forEach((id) => {
+  $(`#${id}`).addEventListener("change", () => {
+    if (fileBytes) convertCurrent();
+  });
+});
+
+    </script>
+  </body>
+</html>

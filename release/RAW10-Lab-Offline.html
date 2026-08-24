@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f3f1eb" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 fill=%22%23ff5a1f%22/><text x=%2216%22 y=%2221%22 text-anchor=%22middle%22 font-family=%22monospace%22 font-size=%2212%22 fill=%22white%22>10</text></svg>" />
+    <meta name="description" content="在瀏覽器內將 10-bit MIPI RAW10 轉換為 BMP、JPG 或 PNG。" />
+    <title>RAW10 Lab — MIPI RAW 轉檔工具</title>
+    <script type="module">var e=[`RGGB`,`BGGR`,`GRBG`,`GBRG`];function t(e){if(!Number.isInteger(e)||e<=0)throw Error(`影像寬度必須是正整數`);return Math.ceil(e/4)*5}function n(e,n,r=t(e)){if(!Number.isInteger(n)||n<=0)throw Error(`影像高度必須是正整數`);if(!Number.isInteger(r)||r<t(e))throw Error(`Row stride 不可小於 ${t(e)} bytes`);return r*n}function r(e,r,i,a=t(r)){let o=n(r,i,a);if(!(e instanceof Uint8Array))throw TypeError(`RAW10 資料必須是 Uint8Array`);if(e.byteLength<o)throw Error(`檔案太小：需要 ${o} bytes，實際只有 ${e.byteLength} bytes`);let s=new Uint16Array(r*i);for(let t=0;t<i;t+=1){let n=t*a;for(let i=0;i<r;i+=4){let a=n+Math.floor(i/4)*5,o=e[a+4],c=Math.min(4,r-i);for(let n=0;n<c;n+=1)s[t*r+i+n]=e[a+n]<<2|o>>n*2&3}}return s}function i(e,t,n){return e[(n&1)*2+(t&1)]}function a(e,t,n,r,a,o,s){if(i(r,a,o)===s)return e[o*t+a];let c=0,l=0;for(let u=-1;u<=1;u+=1){let d=o+u;if(!(d<0||d>=n))for(let n=-1;n<=1;n+=1){let o=a+n;o<0||o>=t||n===0&&u===0||i(r,o,d)===s&&(c+=e[d*t+o],l+=1)}}return l?c/l:e[o*t+a]}function o(t,n,r,{pattern:i=`RGGB`,blackLevel:o=64,whiteLevel:s=1023}={}){if(!(t instanceof Uint16Array)||t.length!==n*r)throw Error(`像素資料尺寸與寬高不符`);if(!e.includes(i))throw Error(`不支援的 Bayer 排列：${i}`);if(!Number.isFinite(o)||!Number.isFinite(s)||s<=o)throw Error(`白電平必須大於黑電平`);let c=new Uint8ClampedArray(n*r*4),l=255/(s-o),u=e=>Math.round(Math.max(0,Math.min(255,(e-o)*l)));for(let e=0;e<r;e+=1)for(let o=0;o<n;o+=1){let s=(e*n+o)*4;c[s]=u(a(t,n,r,i,o,e,`R`)),c[s+1]=u(a(t,n,r,i,o,e,`G`)),c[s+2]=u(a(t,n,r,i,o,e,`B`)),c[s+3]=255}return c}function s(e,t,n){if(!(e instanceof Uint8ClampedArray)||e.length!==t*n*4)throw Error(`RGBA 資料尺寸與寬高不符`);let r=t*n*4,i=new ArrayBuffer(54+r),a=new DataView(i),o=new Uint8Array(i);o[0]=66,o[1]=77,a.setUint32(2,i.byteLength,!0),a.setUint32(10,54,!0),a.setUint32(14,40,!0),a.setInt32(18,t,!0),a.setInt32(22,n,!0),a.setUint16(26,1,!0),a.setUint16(28,32,!0),a.setUint32(34,r,!0);for(let r=0;r<n;r+=1){let i=n-1-r;for(let n=0;n<t;n+=1){let a=(r*t+n)*4,s=54+(i*t+n)*4;o[s]=e[a+2],o[s+1]=e[a+1],o[s+2]=e[a],o[s+3]=255}}return new Blob([i],{type:`image/bmp`})}var c=e=>document.querySelector(e),l=c(`#fileInput`),u=c(`#dropZone`),d=c(`#settingsForm`),f=c(`#previewCanvas`),p=c(`#previewEmpty`),m=c(`#processing`),h=c(`#fileName`),g=c(`#fileMeta`),_=c(`#status`),v=c(`#convertButton`),y=c(`#downloadButton`),b=c(`#stride`),x=c(`#width`),S=c(`#height`),C=null,w=null,T=``;function E(e){return e<1024?`${e} B`:e<1024**2?`${(e/1024).toFixed(1)} KB`:`${(e/1024**2).toFixed(1)} MB`}function D(e,t=``){_.textContent=e,_.className=`status-message ${t}`.trim()}function O(){w=null,y.disabled=!0,f.classList.add(`hidden`),p.classList.remove(`hidden`)}function k(e){e&&(C=e,h.textContent=e.name,g.textContent=`${E(e.size)} · 本機處理，不會上傳`,u.classList.add(`has-file`),v.disabled=!1,O(),j(),D(`檔案已就緒，請確認影像參數`))}function A(){let e=Number(x.value),n=Number(S.value),r=Number.isInteger(e)&&e>0?t(e):0;return{width:e,height:n,stride:b.value===``?r:Number(b.value),minimumStride:r}}function j(){try{let{width:e,height:t,stride:r,minimumStride:i}=A();c(`#strideHint`).textContent=i?`最小 ${i} bytes；留空自動計算`:`依影像寬度自動計算`;let a=n(e,t,r);c(`#expectedSize`).textContent=`預期 RAW 大小 ${E(a)}`,C&&C.size<a&&D(`檔案不足 ${E(a)}，請檢查寬、高或 stride`,`error`)}catch{c(`#expectedSize`).textContent=`輸入尺寸後顯示預期檔案大小`}}async function M(e,t){return new Promise((n,r)=>{f.toBlob(e=>e?n(e):r(Error(`瀏覽器無法建立輸出影像`)),e,t)})}async function N(){if(!(!C||!d.reportValidity())){v.disabled=!0,y.disabled=!0,m.classList.remove(`hidden`),D(`正在解包 RAW10 與 Bayer 去馬賽克…`),await new Promise(e=>window.setTimeout(e,20));try{let{width:e,height:t,stride:i}=A(),a=c(`#bayer`).value,l=Number(c(`#blackLevel`).value),u=Number(c(`#whiteLevel`).value),d=new Uint8Array(await C.arrayBuffer()),m=o(r(d,e,t,i),e,t,{pattern:a,blackLevel:l,whiteLevel:u});f.width=e,f.height=t,f.getContext(`2d`).putImageData(new ImageData(m,e,t),0,0);let h=document.querySelector(`input[name="format"]:checked`).value;h===`bmp`?(w=s(m,e,t),T=`bmp`):(w=await M(h===`jpg`?`image/jpeg`:`image/png`,h===`jpg`?.92:void 0),T=h),f.classList.remove(`hidden`),p.classList.add(`hidden`),y.disabled=!1;let g=d.byteLength-n(e,t,i);D(`完成：${e} × ${t} · ${a} · ${T.toUpperCase()}${g>0?`（忽略尾端 ${E(g)}）`:``}`,`success`)}catch(e){O(),D(e instanceof Error?e.message:`轉換失敗`,`error`)}finally{m.classList.add(`hidden`),v.disabled=!1}}}function P(){if(!w||!C)return;let e=URL.createObjectURL(w),t=document.createElement(`a`),n=C.name.replace(/\.[^.]+$/,``)||`raw10`;t.href=e,t.download=`${n}.${T}`,t.click(),window.setTimeout(()=>URL.revokeObjectURL(e),1e3)}e.includes(c(`#bayer`).value)||(c(`#bayer`).value=`RGGB`),u.addEventListener(`click`,()=>l.click()),u.addEventListener(`keydown`,e=>{(e.key===`Enter`||e.key===` `)&&(e.preventDefault(),l.click())}),u.addEventListener(`dragover`,e=>{e.preventDefault(),u.classList.add(`is-dragging`)}),u.addEventListener(`dragleave`,()=>u.classList.remove(`is-dragging`)),u.addEventListener(`drop`,e=>{e.preventDefault(),u.classList.remove(`is-dragging`),k(e.dataTransfer.files[0])}),l.addEventListener(`change`,()=>k(l.files[0])),d.addEventListener(`submit`,e=>{e.preventDefault(),N()}),y.addEventListener(`click`,P),[x,S,b].forEach(e=>e.addEventListener(`input`,j)),document.querySelectorAll(`input[name="format"]`).forEach(e=>e.addEventListener(`change`,O)),j();</script>
+    <style rel="stylesheet" crossorigin>@import "https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;600;700;800&display=swap";:root{color:#252523;font-synthesis:none;--ink:#252523;--muted:#7a7871;--line:#d7d3c9;--paper:#faf9f5;--orange:#ff5a1f;--green:#3b9b71;background:#f3f1eb;font-family:Noto Sans TC,sans-serif}*{box-sizing:border-box}html,body{min-width:320px;min-height:100%;margin:0}body{background-color:#f3f1eb;background-image:linear-gradient(#23232006 1px,#0000 1px),linear-gradient(90deg,#23232006 1px,#0000 1px),none;background-position:0 0,0 0,0 0;background-repeat:repeat,repeat,repeat;background-size:40px 40px;background-attachment:scroll,scroll,scroll;background-origin:padding-box,padding-box,padding-box;background-clip:border-box,border-box,border-box}button,input,select{font:inherit}button{color:inherit}.hidden{display:none!important}.topbar{border-bottom:1px solid var(--line);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);background:#f3f1ebe0;justify-content:space-between;align-items:center;height:72px;padding:0 max(30px,50% - 590px);display:flex}.brand{color:var(--ink);letter-spacing:.08em;align-items:center;gap:12px;font:800 17px DM Mono,monospace;text-decoration:none;display:flex}.brand-mark{color:#fff;background:var(--orange);place-items:center;width:34px;height:34px;font-size:11px;display:grid;transform:rotate(-3deg)}.privacy-badge{color:#69675f;letter-spacing:.12em;align-items:center;gap:8px;font:500 9px DM Mono,monospace;display:flex}.privacy-badge span{background:var(--green);border-radius:50%;width:7px;height:7px;box-shadow:0 0 0 4px #3b9b711f}main{width:min(1180px,100% - 48px);margin:0 auto}.hero{grid-template-columns:1.35fr .65fr;align-items:end;gap:70px;padding:65px 0 45px;display:grid}.eyebrow{color:var(--orange);letter-spacing:.18em;margin:0 0 14px;font:500 10px DM Mono,monospace}h1{letter-spacing:-.06em;margin:0;font-size:clamp(37px,5vw,66px);line-height:1.09}h1 em{color:var(--orange);font-style:normal}.hero-copy{max-width:390px;color:var(--muted);margin:0 0 8px;font-size:13px;line-height:1.9}.workspace{border:1px solid var(--line);grid-template-columns:minmax(440px,.9fr) minmax(450px,1.1fr);display:grid;box-shadow:0 26px 70px #342e2014}.control-panel,.preview-panel{background:#faf9f5f0;min-width:0;padding:32px}.preview-panel{border-left:1px solid var(--line);color:#f5f3ec;background:#222321;flex-direction:column;display:flex}.section-title{align-items:center;gap:14px;display:flex}.section-title>span{border:1px solid var(--orange);width:29px;height:29px;color:var(--orange);place-items:center;font:500 9px DM Mono,monospace;display:grid}.section-title h2,.preview-header h2{margin:0;font-size:17px}.section-title p{color:#9a978f;letter-spacing:.13em;margin:4px 0 0;font:400 8px DM Mono,monospace}.drop-zone{cursor:pointer;background:#f5f3ed;border:1px dashed #bbb7ac;grid-template-columns:auto 1fr auto;align-items:center;gap:14px;min-height:84px;margin-top:20px;padding:16px;transition:all .18s;display:grid}.drop-zone:hover,.drop-zone.is-dragging{border-color:var(--orange);background:#fff8f4}.drop-zone.has-file{background:#f2f8f4;border-style:solid;border-color:#88b9a5}.upload-icon{width:43px;height:43px;color:var(--orange);background:#fff;border:1px solid #e3e0d8;place-items:center;display:grid}.upload-icon svg{fill:none;stroke:currentColor;stroke-width:1.5px;width:21px}.drop-zone strong,.drop-zone small{text-overflow:ellipsis;white-space:nowrap;display:block;overflow:hidden}.drop-zone strong{font-size:12px}.drop-zone small{color:#97948b;margin-top:5px;font-size:9px}.browse-label{color:#77746d;border:1px solid #d4d0c7;padding:7px 10px;font-size:9px}.settings-title{border-top:1px solid #dedbd3;margin-top:30px;padding-top:28px}.field-grid{grid-template-columns:1fr 1fr;gap:16px 14px;margin-top:20px;display:grid}.field-grid label{color:#77746c;letter-spacing:.06em;font:500 9px DM Mono,monospace}.field-grid input,.field-grid select{width:100%;height:40px;color:var(--ink);background:#fff;border:1px solid #d4d0c7;border-radius:0;outline:0;margin-top:7px;padding:0 11px;font:500 12px DM Mono,monospace}.field-grid input:focus,.field-grid select:focus{border-color:var(--orange);box-shadow:0 0 0 2px #ff5a1f1a}.field-grid label small{color:#aaa69e;letter-spacing:0;margin-top:4px;font:8px/1.3 Noto Sans TC,sans-serif;display:block}.size-hint{color:#98958d;min-height:16px;margin:12px 0 0;font:9px DM Mono,monospace}fieldset{border:0;gap:8px;margin:18px 0 20px;padding:0;display:flex}legend{color:#77746c;letter-spacing:.06em;margin-bottom:8px;font:500 9px DM Mono,monospace}.format-option{cursor:pointer;flex:1;position:relative}.format-option input{opacity:0;position:absolute}.format-option>span{background:#fff;border:1px solid #d4d0c7;padding:10px;font:500 11px DM Mono,monospace;display:block}.format-option small{color:#aaa69d;margin-top:3px;font:8px Noto Sans TC,sans-serif;display:block}.format-option input:checked+span{border-color:var(--orange);color:var(--orange);box-shadow:inset 0 -2px var(--orange)}.primary-button,.download-button{color:#fff;background:var(--orange);cursor:pointer;border:0;justify-content:space-between;align-items:center;width:100%;height:46px;padding:0 17px;font-size:12px;font-weight:700;display:flex}.primary-button:hover:not(:disabled){background:#eb4910}button:disabled{cursor:not-allowed;opacity:.42}.preview-header{justify-content:space-between;align-items:flex-start;display:flex}.preview-header .eyebrow{margin-bottom:8px}.preview-header>span{color:#777972;font:9px DM Mono,monospace}.preview-stage{background:#171816;border:1px solid #393a37;flex:1;place-items:center;min-height:430px;margin-top:22px;display:grid;position:relative;overflow:hidden}.preview-stage:before{content:"";opacity:.3;background-color:#0000;background-image:linear-gradient(#343532 1px,#0000 1px),linear-gradient(90deg,#343532 1px,#0000 1px);background-position:0 0,0 0;background-repeat:repeat,repeat;background-size:24px 24px;background-attachment:scroll,scroll;background-origin:padding-box,padding-box;background-clip:border-box,border-box;position:absolute;top:0;bottom:0;left:0;right:0}#previewCanvas{z-index:1;image-rendering:auto;max-width:100%;max-height:520px;display:block;position:relative}.preview-empty{z-index:1;color:#7c7e76;text-align:center;flex-direction:column;align-items:center;display:flex;position:relative}.preview-empty strong{color:#aaa9a3;margin-top:19px;font-size:12px}.preview-empty small{margin-top:7px;font-size:9px}.pixel-grid{opacity:.7;background-color:#0000;background-image:linear-gradient(90deg,#3c3d39 50%,#2b2c29 50%),linear-gradient(#2b2c29 50%,#0000 50%);background-position:0 0,0 0;background-repeat:repeat,repeat;background-size:20px 20px;background-attachment:scroll,scroll;background-origin:padding-box,padding-box;background-clip:border-box,border-box;width:62px;height:62px;transform:rotate(8deg)}.processing{z-index:3;color:#cccac2;background:#171816e6;justify-content:center;align-items:center;gap:10px;font-size:11px;display:flex;position:absolute;top:0;bottom:0;left:0;right:0}.processing span{border:2px solid #555;border-top-color:var(--orange);border-radius:50%;width:17px;height:17px;animation:.7s linear infinite spin}@keyframes spin{to{transform:rotate(360deg)}}.status-message{color:#878981;min-height:18px;margin:16px 0 11px;font-size:10px}.status-message.success{color:#72c49f}.status-message.error{color:#ff8a63}.download-button{color:#252523;background:#f1efe8;justify-content:center;gap:9px}.download-button:hover:not(:disabled){background:#fff}.download-button svg{fill:none;stroke:currentColor;stroke-width:1.5px;width:17px}.technical-note{background:#faf9f5b3;border:1px solid #ddd8cc;gap:13px;margin:20px 0 70px;padding:17px 19px;display:flex}.technical-note>span{border:1px solid #aaa69c;border-radius:50%;flex:none;place-items:center;width:21px;height:21px;font:500 10px DM Mono,monospace;display:grid}.technical-note p{color:#7e7b73;margin:0;font-size:10px;line-height:1.8}.technical-note strong{color:#474640}footer{border-top:1px solid var(--line);color:#929087;letter-spacing:.08em;justify-content:space-between;padding:24px max(30px,50% - 590px);font:9px DM Mono,monospace;display:flex}@media (max-width:900px){.hero{grid-template-columns:1fr;gap:20px;padding-top:45px}.workspace{grid-template-columns:1fr}.preview-panel{border-left:0;border-top:1px solid var(--line);min-height:620px}}@media (max-width:560px){.topbar{padding-inline-start:18px;padding-inline-end:18px}.privacy-badge{display:none}main{width:calc(100% - 24px)}.hero{padding:35px 4px 28px}h1{font-size:38px}.control-panel,.preview-panel{padding:22px 18px}.field-grid{grid-template-columns:1fr}.drop-zone{grid-template-columns:auto 1fr}.browse-label{display:none}.preview-stage{min-height:330px}footer{padding-inline-start:18px;padding-inline-end:18px}footer span:last-child{display:none}}
+/*$vite$:1*/</style>
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="RAW10 Lab 首頁">
+          <span class="brand-mark" aria-hidden="true">10</span>
+          <span>RAW10 LAB</span>
+        </a>
+        <span class="privacy-badge"><span></span>LOCAL PROCESSING</span>
+      </header>
+
+      <main>
+        <section class="hero">
+          <div>
+            <p class="eyebrow">MIPI RAW IMAGE UTILITY</p>
+            <h1>把感光元件資料，<br />變成<em>看得見的影像。</em></h1>
+          </div>
+          <p class="hero-copy">專為標準 10-bit MIPI RAW10 打包格式設計。在裝置上完成解包、Bayer 去馬賽克與影像輸出。</p>
+        </section>
+
+        <section class="workspace">
+          <div class="control-panel">
+            <div class="section-title"><span>01</span><div><h2>載入 RAW10</h2><p>4 PIXELS / 5 BYTES</p></div></div>
+            <div class="drop-zone" id="dropZone" role="button" tabindex="0" aria-label="選擇或拖放 RAW10 檔案">
+              <div class="upload-icon">
+                <svg viewBox="0 0 24 24"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v5h14v-5"/></svg>
+              </div>
+              <div><strong id="fileName">拖放 RAW 檔案到這裡</strong><small id="fileMeta">或點擊選擇 .raw / .bin 檔案</small></div>
+              <span class="browse-label">瀏覽</span>
+            </div>
+
+            <form id="settingsForm">
+              <div class="section-title settings-title"><span>02</span><div><h2>影像參數</h2><p>SENSOR CONFIGURATION</p></div></div>
+              <div class="field-grid">
+                <label>寬度 WIDTH<input id="width" type="number" min="1" max="32768" value="1920" required /></label>
+                <label>高度 HEIGHT<input id="height" type="number" min="1" max="32768" value="1080" required /></label>
+                <label>Bayer 排列
+                  <select id="bayer">
+                    <option>RGGB</option><option>BGGR</option><option>GRBG</option><option>GBRG</option>
+                  </select>
+                </label>
+                <label>Row stride (bytes)<input id="stride" type="number" min="1" placeholder="自動" /><small id="strideHint"></small></label>
+                <label>黑電平 BLACK<input id="blackLevel" type="number" min="0" max="1022" value="64" required /></label>
+                <label>白電平 WHITE<input id="whiteLevel" type="number" min="1" max="1023" value="1023" required /></label>
+              </div>
+              <p class="size-hint" id="expectedSize"></p>
+
+              <fieldset>
+                <legend>輸出格式</legend>
+                <label class="format-option"><input type="radio" name="format" value="png" checked /><span>PNG<small>無損影像</small></span></label>
+                <label class="format-option"><input type="radio" name="format" value="jpg" /><span>JPG<small>品質 92%</small></span></label>
+                <label class="format-option"><input type="radio" name="format" value="bmp" /><span>BMP<small>32-bit</small></span></label>
+              </fieldset>
+
+              <button class="primary-button" id="convertButton" type="submit" disabled>
+                <span>轉換並預覽</span><span>→</span>
+              </button>
+            </form>
+          </div>
+
+          <div class="preview-panel">
+            <div class="preview-header"><div><p class="eyebrow">OUTPUT PREVIEW</p><h2>影像預覽</h2></div><span>RGB / 8-BIT</span></div>
+            <div class="preview-stage">
+              <div id="previewEmpty" class="preview-empty">
+                <span class="pixel-grid" aria-hidden="true"></span>
+                <strong>等待 RAW 資料</strong>
+                <small>完成參數設定後，預覽會顯示在這裡</small>
+              </div>
+              <canvas id="previewCanvas" class="hidden"></canvas>
+              <div id="processing" class="processing hidden"><span></span>正在處理像素資料…</div>
+            </div>
+            <p id="status" class="status-message" role="status">請先選擇一個 RAW10 檔案</p>
+            <button id="downloadButton" class="download-button" type="button" disabled>
+              <svg viewBox="0 0 24 24"><path d="M12 4v11m0 0 4-4m-4 4-4-4M5 19h14"/></svg>
+              下載轉換結果
+            </button>
+          </div>
+        </section>
+
+        <aside class="technical-note">
+          <span>i</span><p><strong>格式說明</strong> 本工具處理 MIPI CSI-2 RAW10 packed 格式：每組 5 bytes 儲存 4 個 10-bit 像素。RAW 檔不含尺寸與 Bayer 資訊，需依感光元件設定手動輸入。</p>
+        </aside>
+      </main>
+
+      <footer>
+        <span>RAW10 LAB / SENSOR TOOLKIT</span>
+        <span>所有運算皆在瀏覽器本機完成</span>
+      </footer>
+
+      <input id="fileInput" type="file" accept=".raw,.bin,.raw10,application/octet-stream" hidden />
+    </div>
+  </body>
+</html>

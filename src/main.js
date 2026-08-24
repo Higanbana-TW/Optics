@@ -36,12 +36,13 @@ function readSettings() {
   const height = Number($("#height").value);
   const tightStride = packedRowBytes(width);
   const strideValue = $("#stride").value.trim();
+  const requestedStride = Number(strideValue);
   return {
     width,
     height,
     pattern: $("#pattern").value,
     offset: Number($("#offset").value),
-    stride: strideValue ? Number(strideValue) : tightStride,
+    stride: !strideValue || requestedStride === 0 ? tightStride : requestedStride,
     blackLevel: Number($("#blackLevel").value),
     whiteLevel: Number($("#whiteLevel").value),
     gamma: Number($("#gamma").value),

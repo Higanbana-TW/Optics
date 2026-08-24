@@ -8,9 +8,10 @@ framing arrows). 4x output uses an 800 mm active picture height (4 × 200 mm).
 
 The official 2000 visual chart is 16:9. Native 4:3 files keep every
 feature’s shape (no anamorphic squeeze). The four corner crosses are
-translated so their centres sit at 0.7 of the 4:3 half-diagonal, the
-same field point they occupy on the 16:9 plate. The centre zone plate
-stays put.
+translated so their centres sit at 0.68 of the 4:3 half-diagonal, the
+same field point as the 16:9 KS plus (~0.68). Overlapping centre wedges
+and square-wave sweeps are omitted; diamond, square, and parallelogram
+SFR patches stay. The centre zone plate stays put.
 
 Regions can be isolated by DXF layer or by exporting a cropped file:
     FRAME, CENTER, PERIPHERY, SFR, LABELS
@@ -58,8 +59,8 @@ ACTIVE_4X3_W = CROP_4X3_RIGHT - CROP_4X3_LEFT
 HALF_DIAG_16X9 = math.hypot(ACTIVE_W, ACTIVE_H) / 2.0
 HALF_DIAG_4X3 = math.hypot(ACTIVE_4X3_W, ACTIVE_H) / 2.0
 # Peripheral visual-resolution crosses sit at this fraction of the
-# half-diagonal (centre → corner). Measured ~0.73 on the 16:9 artwork.
-FIELD_FRACTION = 0.7
+# half-diagonal (centre → corner). On 16:9 the KS plus centroid is ~0.68.
+FIELD_FRACTION = 0.68
 QUAD_CORNERS_4X3 = {
     "LT": (CROP_4X3_LEFT, ACTIVE[1]),
     "RT": (CROP_4X3_RIGHT, ACTIVE[1]),
@@ -637,21 +638,15 @@ def is_side_hbar(shape: Shape) -> bool:
 
 
 def plus_center(cluster: Sequence[Shape]) -> tuple[float, float]:
-    """Centre of a corner cross: intersection of KS horizontal and vertical arms."""
-    hs: list[tuple[float, float]] = []
-    vs: list[tuple[float, float]] = []
-    for shape in cluster:
-        if not shape.group.startswith("KS") or shape.kind != "path" or not shape.bbox:
-            continue
-        x0, y0, x1, y1 = shape.bbox
-        w, h = x1 - x0, y1 - y0
-        c = bbox_center(shape.bbox)
-        if w > h * 1.5:
-            hs.append(c)
-        elif h > w * 1.5:
-            vs.append(c)
-    if vs and hs:
-        return sum(p[0] for p in vs) / len(vs), sum(p[1] for p in hs) / len(hs)
+    """Centre of a corner cross: centroid of the KS high-res plus (~0.68 field)."""
+    ks = [
+        s
+        for s in cluster
+        if s.group.startswith("KS") and s.kind == "path" and s.bbox
+    ]
+    if ks:
+        pts = [bbox_center(s.bbox) for s in ks]
+        return sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
     fs = [s for s in cluster if s.group.startswith('"F"') and s.bbox]
     if fs:
         pts = [bbox_center(s.bbox) for s in fs]
@@ -673,12 +668,27 @@ def translate_shape(shape: Shape, dx: float, dy: float) -> Shape:
     return replace(shape, polylines=polys, insert=insert)
 
 
+def drop_overlapping_center(shape: Shape) -> bool:
+    """4:3 centre: keep zone plate + diamond/square/parallelogram SFR; drop the rest.
+
+    Moving the corner crosses to 0.68 field overlaps the large centre wedges,
+    square-wave sweeps, impulse bars, and the M-circle. Those go away.
+    """
+    g = shape.group
+    if g.startswith(("J1/J2:", "O1/O2", "P1/P2", "M:", "G1", "G2", "E:", "N:")):
+        return True
+    # Leftover centre high-res / small-corner wedges that are not in a cross.
+    if (g.startswith("KS") or g.startswith("JS")) and not is_corner_cross_shape(shape):
+        return True
+    return False
+
+
 def layout_native_4x3(shapes: Sequence[Shape]) -> list[Shape]:
     """4:3 layout: translate the four corner crosses, do not deform anything.
 
-    Each plus centre moves to 0.7 of the 4:3 half-diagonal along that
-    quadrant's corner. T1/T2 H-bars shift in X with the same side offset
-    so they stay between the two crosses. Centre zone plate is unchanged.
+    Each plus centre (KS centroid) moves to 0.68 of the 4:3 half-diagonal
+    along that quadrant's corner. T1/T2 H-bars shift in X with the same
+    side offset. Overlapping centre wedges/sweeps are omitted.
     """
     crosses: dict[str, list[Shape]] = {q: [] for q in QUAD_CORNERS_4X3}
     hbars: list[Shape] = []
@@ -689,6 +699,8 @@ def layout_native_4x3(shapes: Sequence[Shape]) -> list[Shape]:
             crosses[_quadrant(cx, cy)].append(shape)
         elif is_side_hbar(shape):
             hbars.append(shape)
+        elif drop_overlapping_center(shape):
+            continue
         else:
             rest.append(shape)
     out = list(rest)

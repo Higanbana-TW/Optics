@@ -72,7 +72,7 @@ class ChartGeometryTests(unittest.TestCase):
             cx, cy = plus_center(cluster)
             frac = math.hypot(cx - CENTER_X, cy - CENTER_Y) / HALF_DIAG_16X9
             self.assertGreater(frac, 0.65)
-            self.assertLess(frac, 0.80)
+            self.assertLess(frac, 0.70)
 
     def test_4x3_translates_crosses_to_0_7_field(self) -> None:
         original = load_svg(DEFAULT_SVG)
@@ -126,6 +126,30 @@ class ChartGeometryTests(unittest.TestCase):
         self.assertEqual(len(a0), len(a1))
         for x, y in zip(sorted(a0), sorted(a1)):
             self.assertAlmostEqual(x, y, places=5)
+
+    def test_4x3_drops_overlapping_centre_keeps_sfr_quads(self) -> None:
+        original = load_svg(DEFAULT_SVG)
+        moved = layout_native_4x3(original)
+        groups = {s.group for s in moved}
+        self.assertFalse(any(g.startswith("J1") for g in groups))
+        self.assertFalse(any(g.startswith("O1") for g in groups))
+        self.assertFalse(any(g.startswith("P1") for g in groups))
+        self.assertFalse(any(g.startswith("M:") for g in groups))
+        self.assertTrue(any(g.startswith("C:_Center") for g in groups))
+        # Diamond + axis parallelograms stay with L1-L4.
+        diamonds = []
+        paras = []
+        for s in moved:
+            if not s.group.startswith("L1") or not s.bbox or s.kind != "path":
+                continue
+            w = s.bbox[2] - s.bbox[0]
+            h = s.bbox[3] - s.bbox[1]
+            if min(w, h) > 70 and abs(w - h) < 5:
+                diamonds.append(s)
+            elif min(w, h) > 40 and max(w, h) > 100:
+                paras.append(s)
+        self.assertGreaterEqual(len(diamonds), 1)
+        self.assertGreaterEqual(len(paras), 2)
 
     def test_svg_groups_are_classified(self) -> None:
         shapes = load_svg(DEFAULT_SVG)

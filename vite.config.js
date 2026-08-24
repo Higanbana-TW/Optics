@@ -1,5 +1,8 @@
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
-import { resolve } from "node:path";
+
+const root = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   server: {
@@ -11,8 +14,8 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
-        main: resolve(__dirname, "index.html"),
-        raw: resolve(__dirname, "raw.html"),
+        main: resolve(root, "index.html"),
+        raw: resolve(root, "raw.html"),
       },
     },
   },

@@ -32,7 +32,9 @@ Separate files are also written so you can send one piece to a print shop:
 - `..._periphery.dxf` — corners and edges
 - `..._sfr.dxf` — slanted-edge SFR features only
 
-Plot **monochrome**. If a cropped tile fills the camera frame, multiply the printed LW/PH labels by the factor in the `NOTES` line (`full PH / tile height`).
+Plot **monochrome**. Open the DXF in a 2D wireframe / shaded view with fills on (`FILLMODE=1`). The chart is drawn as SOLID triangles plus closed polylines so viewers that skip HATCH still show the wedges, not just the numbers.
+
+If a cropped tile fills the camera frame, multiply the printed LW/PH labels by the factor in the `NOTES` line (`full PH / tile height`).
 
 ## Generate
 

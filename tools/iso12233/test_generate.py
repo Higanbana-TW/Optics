@@ -93,6 +93,13 @@ class DxfOutputTests(unittest.TestCase):
             self.assertIn(name, layers)
         used = {e.dxf.layer for e in doc.modelspace()}
         self.assertTrue({"CENTER", "PERIPHERY", "SFR"} <= used)
+        types = {e.dxftype() for e in doc.modelspace()}
+        self.assertIn("SOLID", types)
+        self.assertIn("LWPOLYLINE", types)
+        extmin = doc.header["$EXTMIN"]
+        self.assertLess(extmin[0], 1e10)
+        solids = sum(1 for e in doc.modelspace() if e.dxftype() == "SOLID")
+        self.assertGreater(solids, 200)
 
     def test_4x3_full_aspect(self) -> None:
         path = self._write("4:3", "full")

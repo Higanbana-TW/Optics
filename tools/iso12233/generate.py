@@ -591,12 +591,12 @@ def poly_to_mm(poly: Sequence[tuple[float, float]], scale: float) -> list[tuple[
 # ---------------------------------------------------------------------------
 
 LAYER_DEFS = [
-    ("FRAME", 8, "Border, framing arrows, registration"),
+    ("FRAME", 7, "Border, framing arrows, registration"),
     ("CENTER", 7, "Central wedges, zone plate, pulse bars"),
-    ("PERIPHERY", 4, "Corner wedges, checkerboards, edge patterns"),
-    ("SFR", 1, "Slanted-edge SFR bars, H-bars, corner squares"),
-    ("LABELS", 3, "Frequency and aspect-ratio labels"),
-    ("NOTES", 2, "Print notes and picture-height callouts"),
+    ("PERIPHERY", 7, "Corner wedges, checkerboards, edge patterns"),
+    ("SFR", 7, "Slanted-edge SFR bars, H-bars, corner squares"),
+    ("LABELS", 7, "Frequency and aspect-ratio labels"),
+    ("NOTES", 7, "Print notes and picture-height callouts"),
 ]
 
 
@@ -625,6 +625,8 @@ def new_doc():
     doc.units = 4  # millimeters
     doc.header["$INSUNITS"] = 4
     doc.header["$MEASUREMENT"] = 1
+    doc.header["$FILLMODE"] = 1
+    doc.header["$LWDISPLAY"] = 1
     for name, color, desc in LAYER_DEFS:
         if name not in doc.layers:
             layer = doc.layers.add(name, color=color)
@@ -632,38 +634,148 @@ def new_doc():
     return doc
 
 
-def add_hatch(msp, points: Sequence[tuple[float, float]], rgb: tuple[int, int, int], layer: str) -> None:
+def _poly_area(pts: Sequence[tuple[float, float]]) -> float:
+    area = 0.0
+    for i, (x1, y1) in enumerate(pts):
+        x2, y2 = pts[(i + 1) % len(pts)]
+        area += x1 * y2 - x2 * y1
+    return 0.5 * area
+
+
+def _cross(a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]) -> float:
+    return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+
+def _point_in_triangle(
+    p: tuple[float, float],
+    a: tuple[float, float],
+    b: tuple[float, float],
+    c: tuple[float, float],
+) -> bool:
+    c1, c2, c3 = _cross(a, b, p), _cross(b, c, p), _cross(c, a, p)
+    return not ((c1 < 0 or c2 < 0 or c3 < 0) and (c1 > 0 or c2 > 0 or c3 > 0))
+
+
+def triangulate(poly: Sequence[tuple[float, float]]) -> list[tuple[tuple[float, float], tuple[float, float], tuple[float, float]]]:
+    pts: list[tuple[float, float]] = []
+    for p in poly:
+        if not pts or math.hypot(p[0] - pts[-1][0], p[1] - pts[-1][1]) > 1e-9:
+            pts.append((p[0], p[1]))
+    if len(pts) >= 2 and pts[0] == pts[-1]:
+        pts.pop()
+    if len(pts) < 3:
+        return []
+    if _poly_area(pts) < 0:
+        pts.reverse()
+    remaining = list(range(len(pts)))
+    tris: list[tuple[tuple[float, float], tuple[float, float], tuple[float, float]]] = []
+    guard = 0
+    limit = max(len(pts) * 4, 16)
+    while len(remaining) > 3 and guard < limit:
+        guard += 1
+        n = len(remaining)
+        ear = None
+        for i in range(n):
+            a = pts[remaining[i - 1]]
+            b = pts[remaining[i]]
+            c = pts[remaining[(i + 1) % n]]
+            if _cross(a, b, c) <= 1e-12:
+                continue
+            if any(
+                _point_in_triangle(pts[remaining[j]], a, b, c)
+                for j in range(n)
+                if remaining[j] not in (remaining[i - 1], remaining[i], remaining[(i + 1) % n])
+            ):
+                continue
+            ear = i
+            tris.append((a, b, c))
+            del remaining[i]
+            break
+        if ear is None:
+            break
+    if len(remaining) == 3:
+        a, b, c = (pts[remaining[0]], pts[remaining[1]], pts[remaining[2]])
+        if abs(_cross(a, b, c)) > 1e-12:
+            tris.append((a, b, c))
+    return tris
+
+
+def is_white(rgb: tuple[int, int, int] | None) -> bool:
+    return rgb is not None and rgb[0] > 200 and rgb[1] > 200 and rgb[2] > 200
+
+
+def add_filled_polygon(msp, points: Sequence[tuple[float, float]], layer: str) -> None:
+    """Filled black geometry that viewers can display without HATCH support.
+
+    Many CAD / DXF previewers skip HATCH. A full-sheet black-then-white hatch
+    also paints the chart away. SOLID triangles + closed polylines stay visible
+    on dark and light backgrounds (ACI 7).
+    """
     if len(points) < 3:
         return
     pts = list(points)
     if pts[0] != pts[-1]:
         pts.append(pts[0])
-    # drop zero-area
     xs = [p[0] for p in pts]
     ys = [p[1] for p in pts]
     if max(xs) - min(xs) < 0.02 and max(ys) - min(ys) < 0.02:
         return
-    hatch = msp.add_hatch(dxfattribs={"layer": layer, "color": 7 if rgb[0] > 200 else 250})
+    attribs = {"layer": layer, "color": 250}
+    msp.add_lwpolyline(pts, close=True, dxfattribs=attribs)
+    for a, b, c in triangulate(pts):
+        solid = msp.add_solid([a, b, c, c], dxfattribs=attribs)
+        solid.rgb = (0, 0, 0)
+    hatch = msp.add_hatch(dxfattribs=attribs)
     hatch.set_solid_fill()
-    hatch.rgb = rgb
+    hatch.rgb = (0, 0, 0)
     hatch.paths.add_polyline_path([(p[0], p[1]) for p in pts], is_closed=True)
 
 
-def add_stroke(msp, points: Sequence[tuple[float, float]], rgb: tuple[int, int, int], width: float, layer: str) -> None:
+def add_stroke(msp, points: Sequence[tuple[float, float]], width: float, layer: str) -> None:
     if len(points) < 2:
         return
     msp.add_lwpolyline(
         points,
         dxfattribs={
             "layer": layer,
-            "color": 256,
-            "lineweight": 25,
-            "const_width": max(width, 0.05),
+            "color": 250,
+            "lineweight": 35,
+            "const_width": max(width, 0.15),
         },
-    ).rgb = rgb
+    )
+
+
+def add_frame_strips(
+    msp,
+    outer: tuple[float, float, float, float],
+    inner: tuple[float, float, float, float],
+    scale: float,
+    layer: str = "FRAME",
+) -> None:
+    ox0, oy0, ox1, oy1 = outer
+    ix0, iy0, ix1, iy1 = inner
+    strips = (
+        (ox0, oy0, ox1, iy0),
+        (ox0, iy1, ox1, oy1),
+        (ox0, iy0, ix0, iy1),
+        (ix1, iy0, ox1, iy1),
+    )
+    for a, b, c, d in strips:
+        add_filled_polygon(
+            msp,
+            [
+                svg_to_mm(a, b, scale),
+                svg_to_mm(c, b, scale),
+                svg_to_mm(c, d, scale),
+                svg_to_mm(a, d, scale),
+            ],
+            layer,
+        )
 
 
 def draw_shape(msp, shape: Shape, scale: float, layer: str, clip: tuple[float, float, float, float] | None) -> None:
+    if shape.group in {"Black_border", "White_background"}:
+        return
     if shape.kind == "text":
         x, y = shape.insert
         if clip and not (clip[0] <= x <= clip[2] and clip[1] <= y <= clip[3]):
@@ -682,12 +794,14 @@ def draw_shape(msp, shape: Shape, scale: float, layer: str, clip: tuple[float, f
         pieces = clip_polyline(poly, clip, closed=closed) if clip else [list(poly)]
         for piece in pieces:
             pts = poly_to_mm(piece, scale)
+            if is_white(shape.fill):
+                continue
             if shape.fill is not None and closed:
-                add_hatch(msp, pts, shape.fill, layer)
+                add_filled_polygon(msp, pts, layer)
             elif shape.stroke is not None:
-                add_stroke(msp, pts, shape.stroke, shape.stroke_width * scale / PT_PER_MM, layer)
+                add_stroke(msp, pts, shape.stroke_width * scale / PT_PER_MM, layer)
             elif shape.fill is not None:
-                add_hatch(msp, pts, shape.fill, layer)
+                add_filled_polygon(msp, pts, layer)
 
 
 def content_clip_for_aspect(aspect: str) -> tuple[float, float, float, float] | None:
@@ -698,95 +812,50 @@ def content_clip_for_aspect(aspect: str) -> tuple[float, float, float, float] | 
 
 def rebuild_4x3_frame(msp, scale: float) -> None:
     """Native 4:3 frame around the official 4:3 crop of the 16:9 chart."""
-    mm = scale / PT_PER_MM
     x0, y0, x1, y1 = CROP_4X3_LEFT, ACTIVE[1], CROP_4X3_RIGHT, ACTIVE[3]
     border = BORDER_PT
     ox0, oy0, ox1, oy1 = x0 - border, y0 - border, x1 + border, y1 + border
-    black = (39, 37, 37)
-    white = (255, 255, 255)
+    add_frame_strips(msp, (ox0, oy0, ox1, oy1), (x0, y0, x1, y1), scale)
 
-    def rect(a, b, c, d, rgb, layer="FRAME"):
-        pts = [svg_to_mm(a, b, scale), svg_to_mm(c, b, scale), svg_to_mm(c, d, scale), svg_to_mm(a, d, scale)]
-        add_hatch(msp, pts, rgb, layer)
-
-    rect(ox0, oy0, ox1, oy1, black)
-    rect(x0, y0, x1, y1, white)
-
-    # ISO-style triangular framing arrows on the 4:3 inner/outer border.
     arrow = 28.347
     mid_y = (y0 + y1) / 2.0
-    for x_outer, x_inner, direction in ((ox0 + border / 2, x0, 1), (ox1 - border / 2, x1, -1)):
-        # side arrows
-        add_hatch(
-            msp,
-            [
-                svg_to_mm(x_outer - 8.5, mid_y - arrow / 2, scale),
-                svg_to_mm(x_outer - 8.5, mid_y + arrow / 2, scale),
-                svg_to_mm(x_inner, mid_y, scale),
-            ],
-            white,
-            "FRAME",
-        )
-        add_hatch(
+    for x_inner, direction in ((x0, 1), (x1, -1)):
+        add_filled_polygon(
             msp,
             [
                 svg_to_mm(x_inner + direction * 8.5, mid_y - arrow / 2, scale),
                 svg_to_mm(x_inner + direction * 8.5, mid_y + arrow / 2, scale),
                 svg_to_mm(x_inner + direction * (8.5 + arrow), mid_y, scale),
             ],
-            black,
             "FRAME",
         )
 
     q1 = x0 + (x1 - x0) * 0.25
     q3 = x0 + (x1 - x0) * 0.75
     for x in (q1, q3):
-        add_hatch(
-            msp,
-            [
-                svg_to_mm(x - 8.5, oy0 + 8, scale),
-                svg_to_mm(x + 8.5, oy0 + 8, scale),
-                svg_to_mm(x, y0, scale),
-            ],
-            white,
-            "FRAME",
-        )
-        add_hatch(
-            msp,
-            [
-                svg_to_mm(x - 8.5, oy1 - 8, scale),
-                svg_to_mm(x + 8.5, oy1 - 8, scale),
-                svg_to_mm(x, y1, scale),
-            ],
-            white,
-            "FRAME",
-        )
-        add_hatch(
+        add_filled_polygon(
             msp,
             [
                 svg_to_mm(x - 8.5, y0 + 28.3, scale),
                 svg_to_mm(x + 8.5, y0 + 28.3, scale),
                 svg_to_mm(x, y0, scale),
             ],
-            black,
             "FRAME",
         )
-        add_hatch(
+        add_filled_polygon(
             msp,
             [
                 svg_to_mm(x - 8.5, y1 - 28.3, scale),
                 svg_to_mm(x + 8.5, y1 - 28.3, scale),
                 svg_to_mm(x, y1, scale),
             ],
-            black,
             "FRAME",
         )
 
-    # 1:1 crop ticks remain valid inside 4:3.
     one_left = CENTER_X - ACTIVE_H / 2.0
     one_right = CENTER_X + ACTIVE_H / 2.0
     for x in (one_left, one_right):
-        add_hatch(
+        add_filled_polygon(
             msp,
             [
                 svg_to_mm(x - 2.8, y0, scale),
@@ -794,10 +863,9 @@ def rebuild_4x3_frame(msp, scale: float) -> None:
                 svg_to_mm(x + 2.8, y0 + 34, scale),
                 svg_to_mm(x - 2.8, y0 + 34, scale),
             ],
-            black,
             "FRAME",
         )
-        add_hatch(
+        add_filled_polygon(
             msp,
             [
                 svg_to_mm(x - 2.8, y1 - 34, scale),
@@ -805,15 +873,13 @@ def rebuild_4x3_frame(msp, scale: float) -> None:
                 svg_to_mm(x + 2.8, y1, scale),
                 svg_to_mm(x - 2.8, y1, scale),
             ],
-            black,
             "FRAME",
         )
 
     ph = BASE_PH_MM * scale
     pw = ph * 4.0 / 3.0
-    height = 3.2 * scale / 4.0 * 4
-    # compact labels
-    for (tx, ty, label) in (
+    height = 3.2 * scale
+    for tx, ty, label in (
         (x0 + 4, y1 - 22, "4:3"),
         (x1 - 40, y1 - 22, "4:3"),
         (one_left + 6, y1 - 22, "1:1"),
@@ -829,7 +895,7 @@ def rebuild_4x3_frame(msp, scale: float) -> None:
     title_x, title_y = svg_to_mm((x0 + x1) / 2.0, 12, scale)
     msp.add_text(
         f"ISO 12233 4:3  {scale:.0f}X   active {pw:.0f} x {ph:.0f} mm   values in 100x LW/PH",
-        height=max(3.5 * scale / 4.0 * 4, 2.8),
+        height=max(3.5 * scale, 2.8),
         dxfattribs={"layer": "NOTES", "color": 250},
     ).set_placement((title_x, title_y), align=TextEntityAlignment.MIDDLE_CENTER)
 
@@ -904,7 +970,7 @@ def add_print_notes(msp, scale: float, aspect: str, region: str, clip: tuple[flo
         f"Full PH={ph:.0f} mm   Tile height={tile_h:.0f} mm   "
         f"If this tile fills the frame, multiply labeled LW/PH by {ph / tile_h:.2f}"
     )
-    msp.add_text(note, height=max(2.4 * scale / 4.0 * 4, 2.0), dxfattribs={"layer": "NOTES", "color": 250}).set_placement(
+    msp.add_text(note, height=max(2.4 * scale, 2.0), dxfattribs={"layer": "NOTES", "color": 250}).set_placement(
         (x, y), align=TextEntityAlignment.MIDDLE_CENTER
     )
 
@@ -922,6 +988,12 @@ def write_dxf(
     clip = region_clip(shapes, aspect, region)
 
     if aspect == "16:9" and region == "full":
+        add_frame_strips(
+            msp,
+            (0.0, 0.0, SVG_W, BODY_H),
+            ACTIVE,
+            scale,
+        )
         add_title_16x9(msp, scale)
         for shape in shapes:
             draw_shape(msp, shape, scale, layer_for(shape), None)
@@ -933,32 +1005,10 @@ def write_dxf(
                 continue
             draw_shape(msp, shape, scale, layer_for(shape), content_clip)
     else:
-        # Cropped region print: include a local frame around the clip.
         if clip:
             x0, y0, x1, y1 = clip
             border = BORDER_PT * 0.35
-            add_hatch(
-                msp,
-                [
-                    svg_to_mm(x0 - border, y0 - border, scale),
-                    svg_to_mm(x1 + border, y0 - border, scale),
-                    svg_to_mm(x1 + border, y1 + border, scale),
-                    svg_to_mm(x0 - border, y1 + border, scale),
-                ],
-                (39, 37, 37),
-                "FRAME",
-            )
-            add_hatch(
-                msp,
-                [
-                    svg_to_mm(x0, y0, scale),
-                    svg_to_mm(x1, y0, scale),
-                    svg_to_mm(x1, y1, scale),
-                    svg_to_mm(x0, y1, scale),
-                ],
-                (255, 255, 255),
-                "FRAME",
-            )
+            add_frame_strips(msp, (x0 - border, y0 - border, x1 + border, y1 + border), clip, scale)
         prefer = region if region in {"center", "periphery", "sfr"} else None
         for shape in iter_content(shapes, aspect, region):
             if "frame" in shape.regions:
@@ -966,9 +1016,54 @@ def write_dxf(
             draw_shape(msp, shape, scale, layer_for(shape, prefer), clip)
         add_print_notes(msp, scale, aspect, region, clip)
 
+    from ezdxf import bbox as ezbbox
+
+    ext = ezbbox.extents(msp)
     dest.parent.mkdir(parents=True, exist_ok=True)
+    if ext.has_data:
+        _fit_active_vport(doc, ext.extmin, ext.extmax)
     doc.saveas(dest)
+    if ext.has_data:
+        _patch_dxf_extents(dest, ext.extmin, ext.extmax)
     return dest
+
+
+def _fit_active_vport(doc, extmin, extmax) -> None:
+    width = float(extmax[0] - extmin[0]) or 1.0
+    height = float(extmax[1] - extmin[1]) or 1.0
+    center = ((extmin[0] + extmax[0]) / 2.0, (extmin[1] + extmax[1]) / 2.0)
+    try:
+        vports = doc.viewports.get("*Active")
+    except Exception:
+        return
+    for vport in vports:
+        vport.dxf.center = center
+        vport.dxf.height = height * 1.08
+        try:
+            vport.dxf.aspect_ratio = width / height
+        except Exception:
+            pass
+
+
+def _patch_dxf_extents(path: Path, extmin, extmax) -> None:
+    """ezdxf resets EXTMIN/EXTMAX/LIMMAX on save; many viewers zoom to A3 limits."""
+    text = path.read_text(encoding="utf-8", errors="replace")
+
+    def repl_xyz(varname: str, x: float, y: float, z: float = 0.0) -> None:
+        nonlocal text
+        pattern = rf"(  9\n\${varname}\n 10\n)[^\n]+(\n 20\n)[^\n]+(\n 30\n)[^\n]+"
+        replacement = rf"\g<1>{x:.6f}\g<2>{y:.6f}\g<3>{z:.6f}"
+        text, n = re.subn(pattern, replacement, text, count=1)
+        if n != 1:
+            pattern2 = rf"(  9\n\${varname}\n 10\n)[^\n]+(\n 20\n)[^\n]+"
+            replacement2 = rf"\g<1>{x:.6f}\g<2>{y:.6f}"
+            text, n = re.subn(pattern2, replacement2, text, count=1)
+
+    repl_xyz("EXTMIN", float(extmin[0]), float(extmin[1]), float(extmin[2]) if len(extmin) > 2 else 0.0)
+    repl_xyz("EXTMAX", float(extmax[0]), float(extmax[1]), float(extmax[2]) if len(extmax) > 2 else 0.0)
+    repl_xyz("LIMMIN", float(extmin[0]), float(extmin[1]))
+    repl_xyz("LIMMAX", float(extmax[0]), float(extmax[1]))
+    path.write_text(text, encoding="utf-8")
 
 
 def render_preview(dxf_path: Path, png_path: Path, *, dpi: int = 72) -> None:

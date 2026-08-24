@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#121211" />
+    <meta name="description" content="將 10-bit MIPI CSI-2 RAW 轉成 BMP、JPG 或 PNG。" />
+    <title>MIPI RAW10 轉換器 — Optic</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <a class="brand" href="./" aria-label="Optic 首頁">
+          <span class="brand-mark" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </span>
+          <span>OPTIC</span>
+        </a>
+        <nav class="tool-nav" aria-label="工具切換">
+          <a href="./">播放器</a>
+          <a href="./raw.html" class="active">RAW10</a>
+        </nav>
+        <div class="topbar-actions">
+          <div class="source-state">
+            <span class="status-dot"></span>
+            <span id="sourceLabel">尚未載入 RAW</span>
+          </div>
+          <button class="icon-button" id="helpButton" aria-label="使用說明" title="使用說明">?</button>
+        </div>
+      </header>
+
+      <main>
+        <section class="converter-layout" aria-label="MIPI RAW10 轉換器">
+          <aside class="control-panel">
+            <p class="eyebrow">MIPI RAW10</p>
+            <h2>10-bit RAW 轉圖</h2>
+            <div class="drop-zone" id="dropZone" role="button" tabindex="0">
+              <strong>拖放 RAW 檔到這裡</strong>
+              <small>支援 .raw / .RAW10 / 任意二進位 dump</small>
+            </div>
+            <p class="file-meta" id="fileMeta"></p>
+
+            <div class="button-row">
+              <button class="primary-button" id="openFileButton" type="button">開啟檔案</button>
+              <button class="secondary-button" id="sampleButton" type="button">載入示範畫面</button>
+            </div>
+
+            <div class="field-grid">
+              <label class="field span-2">
+                <span>可能的解析度</span>
+                <select id="guessSelect">
+                  <option value="">載入檔案後自動猜測</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>寬度</span>
+                <input id="width" type="number" min="8" step="4" placeholder="1920" />
+              </label>
+              <label class="field">
+                <span>高度</span>
+                <input id="height" type="number" min="8" step="1" placeholder="1080" />
+              </label>
+              <label class="field">
+                <span>封包格式</span>
+                <select id="format">
+                  <option value="mipi10">MIPI RAW10（4 像素 / 5 bytes）</option>
+                  <option value="u16le">Unpacked 16-bit LE（低 10 bit）</option>
+                  <option value="u16msb">Unpacked 16-bit LE（高 10 bit）</option>
+                  <option value="u16be">Unpacked 16-bit BE</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Bayer 排列</span>
+                <select id="bayer">
+                  <option value="RGGB">RGGB</option>
+                  <option value="GRBG">GRBG</option>
+                  <option value="GBRG">GBRG</option>
+                  <option value="BGGR">BGGR</option>
+                  <option value="mono">Mono（灰階）</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>檔頭 offset</span>
+                <input id="offset" type="number" min="0" step="1" value="0" />
+              </label>
+              <label class="field">
+                <span>列跨距 stride</span>
+                <input id="stride" type="number" min="0" step="1" placeholder="自動" />
+              </label>
+              <label class="field">
+                <span>影格</span>
+                <input id="frame" type="number" min="0" step="1" value="0" />
+              </label>
+              <label class="field">
+                <span>黑電平</span>
+                <input id="blackLevel" type="number" min="0" max="1023" step="1" value="0" />
+              </label>
+              <label class="field">
+                <span>白平衡</span>
+                <select id="whiteBalance">
+                  <option value="auto">自動（灰世界）</option>
+                  <option value="off">關閉</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>10-bit → 8-bit</span>
+                <select id="tone">
+                  <option value="percentile">百分位拉伸（較好看）</option>
+                  <option value="shift">直接右移 2 bit</option>
+                  <option value="stretch">最小-最大拉伸</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>JPEG 品質</span>
+                <input id="jpegQuality" type="number" min="40" max="95" step="1" value="92" />
+              </label>
+            </div>
+
+            <div class="button-row">
+              <button class="primary-button" id="convertButton" type="button">轉換預覽</button>
+            </div>
+            <div class="save-row">
+              <button class="secondary-button" data-save="png" type="button" disabled>PNG</button>
+              <button class="secondary-button" data-save="jpeg" type="button" disabled>JPG</button>
+              <button class="secondary-button" data-save="bmp" type="button" disabled>BMP</button>
+            </div>
+            <p class="hint">MIPI RAW10：每 4 個 10-bit 像素打包成 5 bytes。寬度必須是 4 的倍數。轉換在瀏覽器本機完成，檔案不會上傳。</p>
+          </aside>
+
+          <section class="preview-panel">
+            <div class="preview-wrap" id="previewWrap">
+              <div class="preview-empty" id="emptyPreview">
+                <p class="eyebrow">READY TO CONVERT</p>
+                <h1>把 RAW<br /><em>變成圖片。</em></h1>
+                <p class="empty-copy">載入 sensor dump，或先用示範色卡確認 Bayer 排列。</p>
+              </div>
+              <canvas id="preview" aria-label="轉換預覽"></canvas>
+              <div class="toast hidden" id="toast" role="status"></div>
+            </div>
+          </section>
+        </section>
+      </main>
+
+      <footer>
+        <span>OPTIC RAW10 / 02</span>
+        <span>10-bit MIPI CSI-2</span>
+      </footer>
+    </div>
+
+    <input id="fileInput" type="file" accept=".raw,.RAW,.raw10,.RAW10,.bin,.img,*" hidden />
+
+    <dialog id="helpDialog">
+      <div class="dialog-content help-content">
+        <button class="dialog-close" id="helpCloseButton" aria-label="關閉">×</button>
+        <p class="eyebrow">RAW10 GUIDE</p>
+        <h2>格式說明</h2>
+        <dl>
+          <div><dt>MIPI RAW10</dt><dd>4 像素打包成 5 bytes，第 5 byte 放 4 組 LSB</dd></div>
+          <div><dt>Unpacked 16-bit</dt><dd>每像素 2 bytes，10-bit 在低位或高位</dd></div>
+          <div><dt>Bayer</dt><dd>選錯會偏綠或紅藍對調，可對示範色卡微調</dd></div>
+          <div><dt>命令列</dt><dd>python3 mipi_raw_convert.py capture.raw -W 1920 -H 1080 -o out.png</dd></div>
+        </dl>
+      </div>
+    </dialog>
+    <script type="module" src="/src/mipi-raw-ui.js"></script>
+  </body>
+</html>

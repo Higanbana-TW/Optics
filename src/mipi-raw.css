@@ -1,0 +1,146 @@
+.converter-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) 1fr;
+  gap: 18px;
+  margin: 28px 0 50px;
+}
+
+.control-panel,
+.preview-panel {
+  border: 1px solid var(--line);
+  background: rgba(26, 26, 24, .78);
+}
+
+.control-panel { padding: 22px; }
+.preview-panel { min-height: 520px; position: relative; overflow: hidden; }
+
+.drop-zone {
+  display: grid;
+  gap: 8px;
+  place-items: center;
+  min-height: 126px;
+  padding: 18px;
+  border: 1px dashed rgba(255, 255, 255, .18);
+  background: rgba(0, 0, 0, .25);
+  cursor: pointer;
+  text-align: center;
+}
+
+.drop-zone:hover,
+.drop-zone.dragover {
+  border-color: var(--orange);
+  background: rgba(255, 91, 27, .06);
+}
+
+.drop-zone strong { font-size: 13px; }
+.drop-zone small,
+.file-meta {
+  color: var(--muted);
+  font: 400 11px "DM Mono", monospace;
+}
+
+.file-meta { margin: 10px 0 0; min-height: 16px; }
+
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field.span-2 { grid-column: span 2; }
+
+.field label {
+  color: #bbb;
+  font-size: 11px;
+}
+
+.field input,
+.field select {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid #3c3c38;
+  background: #111;
+  color: #eee;
+  font: 11px "DM Mono", monospace;
+}
+
+.field input:focus,
+.field select:focus {
+  outline: 0;
+  border-color: var(--orange);
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.button-row .primary-button,
+.button-row .secondary-button {
+  flex: 1;
+  min-width: 120px;
+}
+
+.save-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.save-row button:disabled,
+#convertButton:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.preview-wrap {
+  position: relative;
+  min-height: 520px;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(60, 59, 54, .4), transparent 34%),
+    #090909;
+  display: grid;
+  place-items: center;
+}
+
+.preview-wrap canvas {
+  max-width: 100%;
+  max-height: 72vh;
+  width: auto;
+  height: auto;
+  display: none;
+}
+
+.preview-wrap.has-image canvas { display: block; }
+
+.preview-empty {
+  text-align: center;
+  padding: 30px;
+}
+
+.preview-empty h1 {
+  font-size: clamp(28px, 3.5vw, 44px);
+}
+
+.hint {
+  margin: 14px 0 0;
+  color: #666660;
+  font: 400 10px/1.6 "DM Mono", monospace;
+}
+
+@media (max-width: 900px) {
+  .converter-layout { grid-template-columns: 1fr; }
+  .preview-wrap, .preview-panel { min-height: 420px; }
+  .tool-nav { display: none; }
+}

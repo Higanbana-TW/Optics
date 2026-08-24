@@ -102,6 +102,37 @@ button { color: inherit; }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: #5d5d58; }
 .status-dot.active { background: var(--orange); box-shadow: 0 0 10px rgba(255,91,27,.6); }
 
+.tool-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: center;
+}
+
+.tool-nav a {
+  color: #8d8c86;
+  text-decoration: none;
+  font: 500 11px/1 "DM Mono", monospace;
+  letter-spacing: .08em;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+}
+
+.tool-nav a.active,
+.tool-nav a:hover {
+  color: #f1f0eb;
+  border-color: var(--line);
+  background: rgba(255, 255, 255, .04);
+}
+
+.topbar-actions {
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
 .icon-button {
   justify-self: end;
   width: 30px;
@@ -282,7 +313,8 @@ input[type="range"]::-moz-range-thumb { width: 11px; height: 11px; border: 0; bo
 .panel-heading { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 18px; }
 .panel-heading h2 { margin: 0; font-size: 20px; letter-spacing: -.025em; }
 .panel-heading > p { margin: 0; color: #666660; font: 400 10px "DM Mono", monospace; }
-.source-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.source-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+a.source-card { color: inherit; text-decoration: none; }
 
 .source-card {
   min-height: 89px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 15px;
@@ -321,7 +353,7 @@ dialog::backdrop { background: rgba(0,0,0,.75); backdrop-filter: blur(5px); }
 
 @media (max-width: 720px) {
   .topbar { grid-template-columns: 1fr auto; padding: 0 18px; }
-  .source-state { display: none; }
+  .source-state, .tool-nav { display: none; }
   main { width: calc(100% - 24px); margin-top: 22px; }
   .video-stage { min-height: 350px; aspect-ratio: 4 / 5; }
   .empty-state { inset-bottom: 90px; padding: 18px; }
@@ -333,6 +365,10 @@ dialog::backdrop { background: rgba(0,0,0,.75); backdrop-filter: blur(5px); }
   .source-grid { grid-template-columns: 1fr; }
   .panel-heading > p { display: none; }
   footer { padding-inline: 18px; }
+}
+
+@media (min-width: 900px) {
+  .source-grid { grid-template-columns: repeat(4, 1fr); }
 }
 
 @media (max-width: 410px) {

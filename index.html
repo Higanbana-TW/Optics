@@ -13,17 +13,23 @@
   <body>
     <div id="app">
       <header class="topbar">
-        <a class="brand" href="#" aria-label="Optic Player 首頁">
+        <a class="brand" href="./" aria-label="Optic Player 首頁">
           <span class="brand-mark" aria-hidden="true">
             <span></span><span></span><span></span>
           </span>
           <span>OPTIC</span>
         </a>
-        <div class="source-state">
-          <span class="status-dot"></span>
-          <span id="sourceLabel">尚未載入媒體</span>
+        <nav class="tool-nav" aria-label="工具切換">
+          <a href="./" class="active">播放器</a>
+          <a href="./raw.html">RAW10</a>
+        </nav>
+        <div class="topbar-actions">
+          <div class="source-state">
+            <span class="status-dot"></span>
+            <span id="sourceLabel">尚未載入媒體</span>
+          </div>
+          <button class="icon-button" id="helpButton" aria-label="使用說明" title="使用說明">?</button>
         </div>
-        <button class="icon-button" id="helpButton" aria-label="使用說明" title="使用說明">?</button>
       </header>
 
       <main>
@@ -139,6 +145,16 @@
               </span>
               <span class="shortcut">C</span>
             </button>
+            <a class="source-card" href="./raw.html">
+              <span class="card-icon">
+                <svg viewBox="0 0 24 24"><path d="M4 7h16v10H4z"/><path d="M8 7v10M4 12h16"/></svg>
+              </span>
+              <span>
+                <strong>MIPI RAW10</strong>
+                <small>轉成 BMP / JPG / PNG</small>
+              </span>
+              <span class="arrow">↗</span>
+            </a>
           </div>
         </section>
       </main>

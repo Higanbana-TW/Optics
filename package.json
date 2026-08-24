@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "node --test src/mipi-raw/convert.test.js",
+    "test:raw": "python3 -m unittest -v test_mipi_raw_convert.py"
   },
   "dependencies": {
     "hls.js": "^1.6.17"

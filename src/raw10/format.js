@@ -54,30 +54,38 @@ const COMMON_WIDTHS = [
 
 const PREFERRED_RATIOS = [4 / 3, 16 / 9, 3 / 2, 5 / 4, 1, 16 / 10];
 
+const MAX_GUESSED_FRAMES = 8;
+
 /**
- * Suggest width/height pairs whose packed frame size divides the file exactly.
- * Sorted so that the most photographic aspect ratios come first.
+ * Suggest width/height pairs whose frame size divides the file exactly, also
+ * considering that the dump may hold several frames back to back. Sorted so
+ * that the most photographic aspect ratios come first.
  */
 export function guessDimensions(byteLength, packing = "mipi10", limit = 12) {
   const seen = new Set();
   const candidates = [];
 
-  for (const width of COMMON_WIDTHS) {
-    const rowBytes = bytesPerRow(width, packing);
-    if (byteLength % rowBytes !== 0) continue;
-    const height = byteLength / rowBytes;
-    if (height < 64 || height > 12000 || !Number.isInteger(height)) continue;
-    const ratio = width / height;
-    if (ratio < 0.4 || ratio > 4) continue;
-    const key = `${width}x${height}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const ratioError = Math.min(...PREFERRED_RATIOS.map((r) => Math.abs(ratio - r) / r));
-    candidates.push({ width, height, ratio, ratioError });
+  for (let frames = 1; frames <= MAX_GUESSED_FRAMES; frames += 1) {
+    if (byteLength % frames !== 0) continue;
+    const frameBytes = byteLength / frames;
+
+    for (const width of COMMON_WIDTHS) {
+      const rowBytes = bytesPerRow(width, packing);
+      if (frameBytes % rowBytes !== 0) continue;
+      const height = frameBytes / rowBytes;
+      if (height < 64 || height > 12000) continue;
+      const ratio = width / height;
+      if (ratio < 0.4 || ratio > 4) continue;
+      const key = `${width}x${height}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const ratioError = Math.min(...PREFERRED_RATIOS.map((r) => Math.abs(ratio - r) / r));
+      candidates.push({ width, height, frames, ratioError });
+    }
   }
 
-  candidates.sort((a, b) => a.ratioError - b.ratioError || b.width - a.width);
-  return candidates.slice(0, limit).map(({ width, height }) => ({ width, height }));
+  candidates.sort((a, b) => a.ratioError - b.ratioError || a.frames - b.frames || b.width - a.width);
+  return candidates.slice(0, limit).map(({ width, height, frames }) => ({ width, height, frames }));
 }
 
 /** Pull "1920x1080" style hints out of a file name. */

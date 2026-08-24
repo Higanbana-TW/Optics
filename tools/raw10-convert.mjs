@@ -187,7 +187,9 @@ function describeFile(inputPath, bytes, packing, dimensions) {
     file: inputPath,
     bytes: bytes.length,
     packing,
-    guesses: guessDimensions(bytes.length, packing).map((g) => `${g.width}x${g.height}`),
+    guesses: guessDimensions(bytes.length, packing).map((g) =>
+      g.frames > 1 ? `${g.width}x${g.height}（${g.frames} 張影格）` : `${g.width}x${g.height}`,
+    ),
   };
   if (dimensions) {
     info.width = dimensions.width;

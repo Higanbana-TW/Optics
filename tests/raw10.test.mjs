@@ -56,7 +56,17 @@ describe("format helpers", () => {
   it("suggests resolutions that divide the file exactly", () => {
     const bytes = frameByteLength(1920, 1080, "mipi10");
     const guesses = guessDimensions(bytes, "mipi10");
-    assert.ok(guesses.some((g) => g.width === 1920 && g.height === 1080));
+    assert.equal(guesses[0].width, 1920);
+    assert.equal(guesses[0].height, 1080);
+    assert.equal(guesses[0].frames, 1);
+  });
+
+  it("still suggests the frame size for a multi-frame dump", () => {
+    const bytes = frameByteLength(1920, 1080, "mipi10") * 2;
+    const guesses = guessDimensions(bytes, "mipi10");
+    const match = guesses.find((g) => g.width === 1920 && g.height === 1080);
+    assert.ok(match, JSON.stringify(guesses));
+    assert.equal(match.frames, 2);
   });
 
   it("reads hints from file names", () => {

@@ -157,11 +157,12 @@ function renderSizeChips() {
     return;
   }
 
-  for (const { width, height } of guesses) {
+  for (const { width, height, frames } of guesses) {
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "chip";
-    chip.textContent = `${width}×${height}`;
+    chip.textContent = frames > 1 ? `${width}×${height} ×${frames}` : `${width}×${height}`;
+    chip.title = frames > 1 ? `${width}×${height}，共 ${frames} 張影格` : `${width}×${height}，單張影格`;
     chip.classList.toggle(
       "active",
       Number(controls.width.value) === width && Number(controls.height.value) === height,

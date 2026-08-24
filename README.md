@@ -27,6 +27,20 @@ npm run build
 
 把 camera sensor 的 10-bit MIPI CSI-2 RAW dump 轉成 `.bmp`、`.jpg` 或 `.png`。
 
+### 機構電腦不能裝軟體時
+
+不要執行 `.exe`、`.js`，也不必安裝 Python。用**已經有的瀏覽器**開這個網址：
+
+https://raw.githack.com/Higanbana-TW/Optics/cursor%2Fmipi-raw10-converter-4045/mipi-raw.html
+
+這是開網頁，不是執行程式。把 `.raw` 拖進去，再下載 PNG / JPG / BMP。詳細步驟見 `使用說明.txt`。
+
+實驗室若已安裝 MATLAB，可用文字腳本 `mipi_raw_convert.m`（不是執行檔）：
+
+```matlab
+mipi_raw_convert('capture.raw', 1920, 1080, 'out.png')
+```
+
 ### 最簡單：下載後直接開網頁
 
 不需要安裝 Node 或 Python。

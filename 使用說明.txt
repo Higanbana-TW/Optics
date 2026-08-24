@@ -1,0 +1,47 @@
+使用 10-bit MIPI RAW 轉換器（機構管制電腦）
+========================================
+
+你的電腦若不能執行 .exe、.js，也不能安裝 Python，
+請不要下載程式來「安裝」。請改用「已經允許的瀏覽器」。
+
+方法 A（建議）：用瀏覽器開網頁，什麼都不用裝
+--------------------------------------------
+用 Chrome 或 Edge 網址列貼上：
+
+  https://raw.githack.com/Higanbana-TW/Optics/cursor%2Fmipi-raw10-converter-4045/mipi-raw.html
+
+然後：
+  1. 把 .raw 拖進網頁（或按「載入示範畫面」）
+  2. 確認寬度、高度、Bayer（常見 RGGB）
+  3. 按 PNG / JPG / BMP 下載圖片
+
+這只是開網站，不是執行 .js 檔或 .exe。
+轉換在瀏覽器裡完成，RAW 不會上傳到別人的伺服器。
+
+若上面網址被擋，改試：
+
+  https://cdn.jsdelivr.net/gh/Higanbana-TW/Optics@a2d2645/mipi-raw.html
+
+
+方法 B：用瀏覽器開啟 HTML 檔（仍不是執行 .js）
+--------------------------------------------
+若政策允許用瀏覽器開本機網頁：
+  1. 下載專案 ZIP 並解壓縮
+  2. 對 mipi-raw.html 按右鍵 → 開啟方式 → Microsoft Edge 或 Chrome
+     （不要用「執行」，也不要點任何 .js / .exe）
+
+方法 C：實驗室若已有 MATLAB
+--------------------------
+MATLAB 通常已由機構安裝，.m 只是文字腳本。
+在 MATLAB 命令視窗：
+
+  mipi_raw_convert('capture.raw', 1920, 1080, 'out.png')
+  mipi_raw_convert('capture.raw', 1920, 1080, 'out.bmp', 'Bayer', 'RGGB')
+
+
+做不到時
+--------
+若瀏覽器被完全關掉 JavaScript、且沒有 MATLAB，
+這台電腦就無法在本機拆 MIPI RAW10。請改用：
+  - 手機熱點 + 自己的瀏覽器開方法 A 的網址
+  - 或請同事在未鎖的電腦上轉檔

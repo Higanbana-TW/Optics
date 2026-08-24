@@ -8,8 +8,10 @@ framing arrows). 4x output uses an 800 mm active picture height (4 × 200 mm).
 
 The official 2000 visual chart is 16:9. Native 4:3 files keep feature
 shapes (no anamorphic squeeze) and keep the centre resolution wedges
-and their 本数 labels. Square-wave bursts that collide are omitted.
-For a native 4:3 TV/camera chart see tools/eiaj (EIAJ / ITE Test Chart A).
+and their 本数 labels. The four corner crosses are translated onto the
+same 4:3 field points as EIAJ / ITE Test Chart A corner circles.
+Square-wave bursts that collide are omitted. For the EIAJ chart itself
+see tools/eiaj.
 
 Regions can be isolated by DXF layer or by exporting a cropped file:
     FRAME, CENTER, PERIPHERY, SFR, LABELS
@@ -56,9 +58,12 @@ ACTIVE_4X3 = (CROP_4X3_LEFT, ACTIVE[1], CROP_4X3_RIGHT, ACTIVE[3])
 ACTIVE_4X3_W = CROP_4X3_RIGHT - CROP_4X3_LEFT
 HALF_DIAG_16X9 = math.hypot(ACTIVE_W, ACTIVE_H) / 2.0
 HALF_DIAG_4X3 = math.hypot(ACTIVE_4X3_W, ACTIVE_H) / 2.0
-# Peripheral visual-resolution crosses sit at this fraction of the
-# half-diagonal (centre → corner). On 16:9 the KS plus centroid is ~0.68.
-FIELD_FRACTION = 0.68
+# EIAJ / ITE Test Chart A corner-circle centres, as fractions of the 4:3
+# half-width (nx) and half-height (ny). Averaged from the four ~PH/4
+# circles in tools/eiaj/data/eiaj_1956.svg. Native 4:3 ISO 12233 places
+# each KS plus at this field point so the 四周 match EIAJ.
+EIAJ_FIELD_NX = 0.762
+EIAJ_FIELD_NY = 0.676
 QUAD_CORNERS_4X3 = {
     "LT": (CROP_4X3_LEFT, ACTIVE[1]),
     "RT": (CROP_4X3_RIGHT, ACTIVE[1]),
@@ -653,11 +658,39 @@ def plus_center(cluster: Sequence[Shape]) -> tuple[float, float]:
 
 
 def field_point_4x3(quad: str) -> tuple[float, float]:
-    x, y = QUAD_CORNERS_4X3[quad]
+    """4:3 location of a corner plus: EIAJ corner-circle field point."""
+    sx = 1.0 if quad[0] == "R" else -1.0
+    sy = 1.0 if quad[1] == "B" else -1.0
     return (
-        CENTER_X + FIELD_FRACTION * (x - CENTER_X),
-        CENTER_Y + FIELD_FRACTION * (y - CENTER_Y),
+        CENTER_X + sx * EIAJ_FIELD_NX * (ACTIVE_4X3_W / 2.0),
+        CENTER_Y + sy * EIAJ_FIELD_NY * (ACTIVE_H / 2.0),
     )
+
+
+def _nearest_plus_quad(
+    shape: Shape,
+    pluses: dict[str, tuple[float, float]],
+) -> str | None:
+    """Attach leftover JS/KS/F/L1 arms that sit closer to a plus than to centre."""
+    if not shape.bbox:
+        return None
+    g = shape.group
+    if not (
+        g.startswith("JS")
+        or g.startswith("KS")
+        or g.startswith('"F"')
+        or g.startswith("L1")
+    ):
+        return None
+    cx, cy = bbox_center(shape.bbox)
+    d_center = math.hypot(cx - CENTER_X, cy - CENTER_Y)
+    best_q: str | None = None
+    best_d = d_center
+    for quad, (px, py) in pluses.items():
+        dist = math.hypot(cx - px, cy - py)
+        if dist + 1e-6 < best_d:
+            best_q, best_d = quad, dist
+    return best_q
 
 
 def translate_shape(shape: Shape, dx: float, dy: float) -> Shape:
@@ -681,13 +714,15 @@ def drop_overlapping_center(shape: Shape) -> bool:
 def layout_native_4x3(shapes: Sequence[Shape]) -> list[Shape]:
     """4:3 layout: translate the four corner crosses, do not deform anything.
 
-    Each plus centre (KS centroid) moves to 0.68 of the 4:3 half-diagonal
-    along that quadrant's corner. T1/T2 H-bars shift in X with the same
-    side offset. Overlapping centre wedges/sweeps are omitted.
+    Each plus centre (KS centroid) moves to the EIAJ 4:3 corner-circle
+    field point (nx=0.762 of half-width, ny=0.676 of half-height).
+    Inward JS/KS arms that sit closer to a plus than to centre travel
+    with that cluster. T1/T2 H-bars shift in X with the same side
+    offset. Overlapping centre square-wave bursts are omitted.
     """
     crosses: dict[str, list[Shape]] = {q: [] for q in QUAD_CORNERS_4X3}
     hbars: list[Shape] = []
-    rest: list[Shape] = []
+    rest_candidates: list[Shape] = []
     for shape in shapes:
         if is_corner_cross_shape(shape):
             cx, cy = bbox_center(shape.bbox)
@@ -697,13 +732,24 @@ def layout_native_4x3(shapes: Sequence[Shape]) -> list[Shape]:
         elif drop_overlapping_center(shape):
             continue
         else:
+            rest_candidates.append(shape)
+    pluses: dict[str, tuple[float, float]] = {}
+    for quad, cluster in crosses.items():
+        if cluster:
+            pluses[quad] = plus_center(cluster)
+    rest: list[Shape] = []
+    for shape in rest_candidates:
+        quad = _nearest_plus_quad(shape, pluses) if pluses else None
+        if quad:
+            crosses[quad].append(shape)
+        else:
             rest.append(shape)
     out = list(rest)
     dx_by_side: dict[str, float] = {}
     for quad, cluster in crosses.items():
-        if not cluster:
+        if not cluster or quad not in pluses:
             continue
-        cx, cy = plus_center(cluster)
+        cx, cy = pluses[quad]
         tx, ty = field_point_4x3(quad)
         dx, dy = tx - cx, ty - cy
         dx_by_side[quad[0]] = dx
@@ -950,8 +996,9 @@ def content_clip_for_aspect(aspect: str) -> tuple[float, float, float, float] | 
 def rebuild_4x3_frame(msp, scale: float) -> None:
     """Native 4:3 frame around the official 4:3 active rectangle.
 
-    Corner crosses are translated into this rectangle; they are not cropped
-    at the 16:9 4:3 arrows and they are not anamorphically squeezed.
+    Corner crosses are translated to EIAJ 四周 field points inside this
+    rectangle; they are not cropped at the 16:9 4:3 arrows and they are
+    not anamorphically squeezed.
     """
     x0, y0, x1, y1 = CROP_4X3_LEFT, ACTIVE[1], CROP_4X3_RIGHT, ACTIVE[3]
     border = BORDER_PT

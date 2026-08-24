@@ -8,7 +8,9 @@ This is a geometric recreation for workshop printing, not an ISO-certified manuf
 
 ISO 12233:2000’s official visual chart is **16:9**. That plate also has crop arrows for **4:3**, **3:2**, and **1:1**. Using those arrows on a 16:9 print **crops** the corner crosses.
 
-The **4:3 DXF does not crop and does not squeeze**. Feature shapes stay as drawn. The four corner resolution crosses are **translated** so each plus centre (KS high-res centroid) sits at **0.68 of the 4:3 half-diagonal** (centre → corner), matching the 16:9 field point (~0.68). Centre hyperbolic wedges and square-wave sweeps that would overlap those crosses are omitted; **diamond, square, and parallelogram SFR** patches and the centre zone plate stay. Picture height is still 800 mm at 4×; active width is 4/3 × height ≈ 1067 mm.
+The **4:3 DXF does not crop the 16:9 plate and does not squeeze**. Feature shapes stay as drawn. The four corner resolution crosses are **translated** so each plus centre (KS high-res centroid) sits at the same 4:3 field point as the **EIAJ / ITE Test Chart A corner circles**: **0.762 of the 4:3 half-width** and **0.676 of the 4:3 half-height**. ISO wedge 本数 stay valid because nothing is scaled. Centre hyperbolic wedges and square-wave sweeps that would overlap those crosses are omitted; **diamond, square, and parallelogram SFR** patches and the centre zone plate stay. Picture height is still 800 mm at 4×; active width is 4/3 × height ≈ 1067 mm.
+
+EIAJ TVL numbers are not ISO LW/PH; only the **四周** placement is reused. JS/L1 tips that stick past the 4:3 frame are clipped to the active rectangle.
 
 CIPA’s later chart is **3:2**, not 4:3. These files follow the 2000 visual chart.
 

@@ -22,9 +22,10 @@ from generate import (
     CROP_4X3_LEFT,
     CROP_4X3_RIGHT,
     DEFAULT_SVG,
-    FIELD_FRACTION,
+    EIAJ_FIELD_NX,
+    EIAJ_FIELD_NY,
     HALF_DIAG_16X9,
-    HALF_DIAG_4X3,
+    bbox_center,
     clip_polyline,
     field_point_4x3,
     is_corner_cross_shape,
@@ -74,7 +75,7 @@ class ChartGeometryTests(unittest.TestCase):
             self.assertGreater(frac, 0.65)
             self.assertLess(frac, 0.70)
 
-    def test_4x3_translates_crosses_to_0_7_field(self) -> None:
+    def test_4x3_translates_crosses_to_eiaj_field(self) -> None:
         original = load_svg(DEFAULT_SVG)
         clusters: dict[str, list] = defaultdict(list)
         for shape in original:
@@ -84,6 +85,8 @@ class ChartGeometryTests(unittest.TestCase):
                 quad = ("L" if cx < CENTER_X else "R") + ("B" if cy > CENTER_Y else "T")
                 clusters[quad].append(shape)
         laid = layout_native_4x3(original)
+        half_w = (CROP_4X3_RIGHT - CROP_4X3_LEFT) / 2.0
+        half_h = ACTIVE_H / 2.0
         for quad, cluster in clusters.items():
             cx, cy = plus_center(cluster)
             tx, ty = field_point_4x3(quad)
@@ -92,10 +95,70 @@ class ChartGeometryTests(unittest.TestCase):
             mx, my = plus_center(moved)
             self.assertAlmostEqual(mx, tx, delta=0.05)
             self.assertAlmostEqual(my, ty, delta=0.05)
-            frac = math.hypot(mx - CENTER_X, my - CENTER_Y) / HALF_DIAG_4X3
-            self.assertAlmostEqual(frac, FIELD_FRACTION, delta=0.005)
-            # Layout output contains those translated shapes.
+            nx = abs(mx - CENTER_X) / half_w
+            ny = abs(my - CENTER_Y) / half_h
+            self.assertAlmostEqual(nx, EIAJ_FIELD_NX, delta=0.005)
+            self.assertAlmostEqual(ny, EIAJ_FIELD_NY, delta=0.005)
             self.assertTrue(any(s.group == cluster[0].group for s in laid))
+
+    def test_4x3_moves_inward_js_arms_with_the_plus(self) -> None:
+        original = load_svg(DEFAULT_SVG)
+        inward = [
+            s
+            for s in original
+            if s.group.startswith("JS")
+            and s.kind == "path"
+            and s.bbox
+            and not is_corner_cross_shape(s)
+        ]
+        self.assertTrue(inward)
+        orig_x = [bbox_center(s.bbox)[0] for s in inward]
+        self.assertTrue(all(700.0 < x < 790.0 for x in orig_x))
+        laid = layout_native_4x3(original)
+        moved_x = [
+            bbox_center(s.bbox)[0]
+            for s in laid
+            if s.group.startswith("JS") and s.kind == "path" and s.bbox
+        ]
+        # RT inward arms (~x=740) travel with the plus (~dx=-86), not stay put.
+        self.assertTrue(any(600.0 < x < 700.0 for x in moved_x))
+        self.assertFalse(any(700.0 < x < 790.0 for x in moved_x))
+
+    def test_eiaj_corner_circles_match_field_constants(self) -> None:
+        svg = Path(__file__).resolve().parent.parent / "eiaj" / "data" / "eiaj_1956.svg"
+        if not svg.is_file():
+            self.skipTest("EIAJ SVG not present")
+        from xml.etree import ElementTree as ET
+
+        frame = (292.0, 382.0, 10689.0, 8230.0)
+        cx = (frame[0] + frame[2]) / 2.0
+        cy = (frame[1] + frame[3]) / 2.0
+        half_w = (frame[2] - frame[0]) / 2.0
+        half_h = (frame[3] - frame[1]) / 2.0
+        root = ET.parse(svg).getroot()
+        circles: list[tuple[float, float]] = []
+
+        def walk(node: ET.Element) -> None:
+            tag = node.tag.split("}")[-1]
+            if tag == "path" and node.get("d"):
+                for poly in parse_path(node.get("d") or ""):
+                    if len(poly) < 200:
+                        continue
+                    xs = [p[0] for p in poly]
+                    ys = [p[1] for p in poly]
+                    w, h = max(xs) - min(xs), max(ys) - min(ys)
+                    if abs(w - 1950) > 40 or abs(h - 1950) > 40:
+                        continue
+                    circles.append(((min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0))
+            for child in list(node):
+                walk(child)
+
+        walk(root)
+        self.assertGreaterEqual(len(circles), 4)
+        nxs = [abs(x - cx) / half_w for x, _y in circles]
+        nys = [abs(y - cy) / half_h for _x, y in circles]
+        self.assertAlmostEqual(sum(nxs) / len(nxs), EIAJ_FIELD_NX, delta=0.01)
+        self.assertAlmostEqual(sum(nys) / len(nys), EIAJ_FIELD_NY, delta=0.01)
 
     def test_4x3_does_not_deform_zone_plate_or_corner_squares(self) -> None:
         original = load_svg(DEFAULT_SVG)

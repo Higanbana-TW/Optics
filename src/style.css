@@ -1,8 +1,6 @@
-@import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;600;700;800&display=swap");
-
 :root {
   color-scheme: dark;
-  font-family: "Noto Sans TC", sans-serif;
+  font-family: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", sans-serif;
   color: #e8eeee;
   background: #0b1010;
   font-synthesis: none;
@@ -11,7 +9,7 @@
   --panel: #111818;
   --line: rgba(172, 221, 214, 0.13);
   --muted: #7b8d8b;
-  --mono: "DM Mono", monospace;
+  --mono: "DM Mono", "Cascadia Mono", Consolas, monospace;
 }
 
 * { box-sizing: border-box; }

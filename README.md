@@ -13,6 +13,14 @@
 
 ## 使用方式
 
+### 不需安裝的離線版
+
+只要下載 [`offline/RAW10-Lab-Offline.html`](offline/RAW10-Lab-Offline.html)，直接雙擊並使用 Chrome、Edge 或 Firefox 開啟即可。不需要安裝 Node.js、Python 或其他程式，也不需要網路連線。
+
+> 此檔案仍需瀏覽器允許一般網頁指令碼執行。若機構政策封鎖本機 HTML 的指令碼，請先交由 IT 部門審核及核准。
+
+### 開發版
+
 ```bash
 npm install
 npm run dev
@@ -33,4 +41,5 @@ npm run dev
 ```bash
 npm test
 npm run build
+npm run build:offline
 ```

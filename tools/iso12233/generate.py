@@ -6,12 +6,10 @@ Source geometry is the public vector recreation published by Stephen H. Westin
 the published 2000 chart features (hyperbolic wedges, slanted-edge SFR bars,
 framing arrows). 4x output uses an 800 mm active picture height (4 × 200 mm).
 
-The official 2000 visual chart is 16:9. Native 4:3 files keep every
-feature’s shape (no anamorphic squeeze). The four corner crosses are
-translated so their centres sit at 0.68 of the 4:3 half-diagonal, the
-same field point as the 16:9 KS plus (~0.68). Overlapping centre wedges
-and square-wave sweeps are omitted; diamond, square, and parallelogram
-SFR patches stay. The centre zone plate stays put.
+The official 2000 visual chart is 16:9. Native 4:3 files keep feature
+shapes (no anamorphic squeeze) and keep the centre resolution wedges
+and their 本数 labels. Square-wave bursts that collide are omitted.
+For a native 4:3 TV/camera chart see tools/eiaj (EIAJ / ITE Test Chart A).
 
 Regions can be isolated by DXF layer or by exporting a cropped file:
     FRAME, CENTER, PERIPHERY, SFR, LABELS
@@ -669,16 +667,13 @@ def translate_shape(shape: Shape, dx: float, dy: float) -> Shape:
 
 
 def drop_overlapping_center(shape: Shape) -> bool:
-    """4:3 centre: keep zone plate + diamond/square/parallelogram SFR; drop the rest.
+    """4:3: drop square-wave sweeps that collide; keep centre 本数 wedges.
 
-    Moving the corner crosses to 0.68 field overlaps the large centre wedges,
-    square-wave sweeps, impulse bars, and the M-circle. Those go away.
+    J1/J2 and centre KS wedges plus their frequency labels stay. O/P
+    square-wave bursts, G impulses, E lines and N checkerboard still go.
     """
     g = shape.group
-    if g.startswith(("J1/J2:", "O1/O2", "P1/P2", "M:", "G1", "G2", "E:", "N:")):
-        return True
-    # Leftover centre high-res / small-corner wedges that are not in a cross.
-    if (g.startswith("KS") or g.startswith("JS")) and not is_corner_cross_shape(shape):
+    if g.startswith(("O1/O2", "P1/P2", "G1", "G2", "E:", "N:")):
         return True
     return False
 

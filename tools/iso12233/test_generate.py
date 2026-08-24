@@ -127,15 +127,17 @@ class ChartGeometryTests(unittest.TestCase):
         for x, y in zip(sorted(a0), sorted(a1)):
             self.assertAlmostEqual(x, y, places=5)
 
-    def test_4x3_drops_overlapping_centre_keeps_sfr_quads(self) -> None:
+    def test_4x3_keeps_centre_resolution_numbers(self) -> None:
         original = load_svg(DEFAULT_SVG)
         moved = layout_native_4x3(original)
         groups = {s.group for s in moved}
-        self.assertFalse(any(g.startswith("J1") for g in groups))
+        self.assertTrue(any(g.startswith("J1") for g in groups))
+        self.assertTrue(any(g.startswith("C:_Center") for g in groups))
+        # Centre frequency labels (本数) come back with J / KS wedges.
+        texts = [s.text for s in moved if s.kind == "text"]
+        self.assertTrue(any(t in {"10", "12", "14", "16"} for t in texts))
         self.assertFalse(any(g.startswith("O1") for g in groups))
         self.assertFalse(any(g.startswith("P1") for g in groups))
-        self.assertFalse(any(g.startswith("M:") for g in groups))
-        self.assertTrue(any(g.startswith("C:_Center") for g in groups))
         # Diamond + axis parallelograms stay with L1-L4.
         diamonds = []
         paras = []

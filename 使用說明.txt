@@ -18,9 +18,8 @@
 這只是開網站，不是執行 .js 檔或 .exe。
 轉換在瀏覽器裡完成，RAW 不會上傳到別人的伺服器。
 
-若上面網址被擋，改試：
-
-  https://cdn.jsdelivr.net/gh/Higanbana-TW/Optics@a2d2645/mipi-raw.html
+若上面網址被公司防火牆擋住，請改用手機或家用電腦開同一個網址，
+或請資訊單位放行 raw.githack.com（這只是靜態網頁，不是安裝檔）。
 
 
 方法 B：用瀏覽器開啟 HTML 檔（仍不是執行 .js）

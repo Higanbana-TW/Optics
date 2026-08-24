@@ -6,9 +6,9 @@ This is a geometric recreation for workshop printing, not an ISO-certified manuf
 
 ## Aspect ratios
 
-ISO 12233:2000 is a **16:9** chart with crop marks for **4:3**, **3:2**, and **1:1**. That is the official 4:3 usage: fill the picture height and crop to the 4:3 arrows.
+ISO 12233:2000’s official visual chart is **16:9**. That plate also has crop arrows for **4:3**, **3:2**, and **1:1**. Using those arrows on a 16:9 print **crops** the sides (T1/T2 H-bars and outer L-squares fall outside the 4:3 frame).
 
-A native **4:3** DXF is also generated: the same 800 mm picture height, width = 4/3 × height, using those official 4:3 crop ticks. Frequency labels (×100 LW/PH) stay valid because picture height is unchanged.
+The **4:3 DXF is not that crop**. It keeps the same 800 mm picture height and **squeezes the full pattern in X** by `(4/3)/(16/9) = 0.75` about the chart center, so the whole 16:9 artwork fits a 4:3 plate. That matches commercial 4:3 ISO 12233 charts (native 1X active ≈ 267 × 200 mm, 4× ≈ 1067 × 800 mm). LW/PH labels stay valid because picture height is unchanged. Horizontal wedges become 0.75× thinner, which is the usual trade-off when a 16:9 master is fitted to 4:3.
 
 CIPA’s later chart is **3:2**, not 4:3. These files follow the 2000 visual chart.
 

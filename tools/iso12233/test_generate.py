@@ -12,13 +12,17 @@ import ezdxf
 from ezdxf import bbox
 
 from generate import (
+    ACTIVE,
     ACTIVE_H,
     ACTIVE_W,
     BASE_PH_MM,
+    CENTER_X,
     CROP_4X3_LEFT,
     CROP_4X3_RIGHT,
     DEFAULT_SVG,
+    SQUASH_4X3,
     clip_polyline,
+    fit_x,
     load_svg,
     parse_path,
     write_dxf,
@@ -45,6 +49,14 @@ class ChartGeometryTests(unittest.TestCase):
     def test_official_4x3_crop_matches_ticks(self) -> None:
         width = CROP_4X3_RIGHT - CROP_4X3_LEFT
         self.assertAlmostEqual(width / ACTIVE_H, 4 / 3, places=3)
+
+    def test_4x3_fit_maps_full_16x9_onto_crop_rect(self) -> None:
+        """Native 4:3 is a horizontal fit of the whole chart, not a crop."""
+        self.assertAlmostEqual(SQUASH_4X3, 0.75)
+        self.assertAlmostEqual(fit_x(ACTIVE[0], True), CROP_4X3_LEFT, places=1)
+        self.assertAlmostEqual(fit_x(ACTIVE[2], True), CROP_4X3_RIGHT, places=1)
+        self.assertAlmostEqual(fit_x(CENTER_X, True), CENTER_X, places=5)
+        self.assertEqual(fit_x(ACTIVE[0], False), ACTIVE[0])
 
     def test_svg_groups_are_classified(self) -> None:
         shapes = load_svg(DEFAULT_SVG)
@@ -113,6 +125,33 @@ class DxfOutputTests(unittest.TestCase):
         self.assertLess(width, BASE_PH_MM * 4 * 16 / 9)
         self.assertGreater(height, BASE_PH_MM * 4)
         self.assertAlmostEqual(width / (BASE_PH_MM * 4 * 4 / 3 + 160), 1.0, delta=0.15)
+
+    def test_4x3_full_keeps_side_features(self) -> None:
+        path16 = self._write("16:9", "full")
+        path43 = self._write("4:3", "full")
+        doc16 = ezdxf.readfile(path16)
+        doc43 = ezdxf.readfile(path43)
+        solids16 = sum(1 for e in doc16.modelspace() if e.dxftype() == "SOLID")
+        solids43 = sum(1 for e in doc43.modelspace() if e.dxftype() == "SOLID")
+        # A crop would drop T1/T2 and outer L-squares; a fit keeps them.
+        self.assertGreater(solids43, 0.85 * solids16)
+
+        t1 = [s for s in self.shapes if s.group.startswith("T1") and s.bbox]
+        self.assertTrue(t1)
+        t1_left = min(s.bbox[0] for s in t1)
+        self.assertLess(t1_left, CROP_4X3_LEFT)
+        fitted_left = fit_x(t1_left, True)
+        self.assertGreater(fitted_left, CROP_4X3_LEFT - 2.0)
+        self.assertLess(fitted_left, CENTER_X)
+
+        sfr_xs = []
+        for e in doc43.modelspace().query("LWPOLYLINE"):
+            if e.dxf.layer != "SFR":
+                continue
+            sfr_xs.extend(p[0] for p in e.get_points())
+        self.assertTrue(sfr_xs)
+        inner_left_mm = CROP_4X3_LEFT * 4 * 25.4 / 72.0
+        self.assertLess(min(sfr_xs), inner_left_mm + 40.0)
 
     def test_region_files_have_sfr_or_center(self) -> None:
         sfr = self._write("16:9", "sfr")

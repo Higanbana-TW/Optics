@@ -6,8 +6,13 @@ Source geometry is the public vector recreation published by Stephen H. Westin
 the published 2000 chart features (hyperbolic wedges, slanted-edge SFR bars,
 framing arrows). 4x output uses an 800 mm active picture height (4 × 200 mm).
 
+The official 2000 visual chart is 16:9. Native 4:3 files keep the same
+picture height and squeeze the full pattern in X (factor 0.75) so every
+feature — including T1/T2 H-bars and outer L-squares — fits a 4:3 plate.
+They are not a crop of the 16:9 arrows.
+
 Regions can be isolated by DXF layer or by exporting a cropped file:
-  FRAME, CENTER, PERIPHERY, SFR, LABELS
+    FRAME, CENTER, PERIPHERY, SFR, LABELS
 """
 
 from __future__ import annotations
@@ -43,9 +48,14 @@ ACTIVE_W = ACTIVE[2] - ACTIVE[0]
 ACTIVE_H = ACTIVE[3] - ACTIVE[1]
 CENTER_X = (ACTIVE[0] + ACTIVE[2]) / 2.0
 CENTER_Y = (ACTIVE[1] + ACTIVE[3]) / 2.0
-# Official 4:3 crop ticks on the 16:9 chart (element D).
+# Official 4:3 crop ticks on the 16:9 chart (element D). The native 4:3
+# export does not crop to these ticks: it squeezes the full 16:9 artwork
+# in X about CENTER_X so every feature fits this same 4:3 rectangle.
 CROP_4X3_LEFT = 182.694
 CROP_4X3_RIGHT = CENTER_X * 2.0 - CROP_4X3_LEFT
+# (4/3) / (16/9) = 0.75. Horizontal-only fit keeps picture height (and
+# therefore LW/PH labels) unchanged, matching commercial 4:3 plates.
+SQUASH_4X3 = (4.0 / 3.0) / (16.0 / 9.0)
 
 BASE_PH_MM = 200.0  # 1X active height
 
@@ -577,13 +587,25 @@ def assign_regions(shape: Shape) -> None:
         shape.regions.add("labels")
 
 
-def svg_to_mm(x: float, y: float, scale: float) -> tuple[float, float]:
+def fit_x(x: float, squash: bool) -> float:
+    """Map 16:9 SVG X into the native 4:3 active width when squash is set."""
+    if not squash:
+        return x
+    return CENTER_X + (x - CENTER_X) * SQUASH_4X3
+
+
+def svg_to_mm(x: float, y: float, scale: float, squash: bool = False) -> tuple[float, float]:
     mm = scale / PT_PER_MM
+    x = fit_x(x, squash)
     return x * mm, (SVG_H - y) * mm
 
 
-def poly_to_mm(poly: Sequence[tuple[float, float]], scale: float) -> list[tuple[float, float]]:
-    return [svg_to_mm(x, y, scale) for x, y in poly]
+def poly_to_mm(
+    poly: Sequence[tuple[float, float]],
+    scale: float,
+    squash: bool = False,
+) -> list[tuple[float, float]]:
+    return [svg_to_mm(x, y, scale, squash) for x, y in poly]
 
 
 # ---------------------------------------------------------------------------
@@ -751,6 +773,7 @@ def add_frame_strips(
     inner: tuple[float, float, float, float],
     scale: float,
     layer: str = "FRAME",
+    squash: bool = False,
 ) -> None:
     ox0, oy0, ox1, oy1 = outer
     ix0, iy0, ix1, iy1 = inner
@@ -764,23 +787,30 @@ def add_frame_strips(
         add_filled_polygon(
             msp,
             [
-                svg_to_mm(a, b, scale),
-                svg_to_mm(c, b, scale),
-                svg_to_mm(c, d, scale),
-                svg_to_mm(a, d, scale),
+                svg_to_mm(a, b, scale, squash),
+                svg_to_mm(c, b, scale, squash),
+                svg_to_mm(c, d, scale, squash),
+                svg_to_mm(a, d, scale, squash),
             ],
             layer,
         )
 
 
-def draw_shape(msp, shape: Shape, scale: float, layer: str, clip: tuple[float, float, float, float] | None) -> None:
+def draw_shape(
+    msp,
+    shape: Shape,
+    scale: float,
+    layer: str,
+    clip: tuple[float, float, float, float] | None,
+    squash: bool = False,
+) -> None:
     if shape.group in {"Black_border", "White_background"}:
         return
     if shape.kind == "text":
         x, y = shape.insert
         if clip and not (clip[0] <= x <= clip[2] and clip[1] <= y <= clip[3]):
             return
-        px, py = svg_to_mm(x, y, scale)
+        px, py = svg_to_mm(x, y, scale, squash)
         height = max(shape.font_size * scale / PT_PER_MM, 1.6)
         msp.add_text(
             shape.text,
@@ -793,7 +823,7 @@ def draw_shape(msp, shape: Shape, scale: float, layer: str, clip: tuple[float, f
         closed = shape.closed or (len(poly) >= 4 and poly[0] == poly[-1])
         pieces = clip_polyline(poly, clip, closed=closed) if clip else [list(poly)]
         for piece in pieces:
-            pts = poly_to_mm(piece, scale)
+            pts = poly_to_mm(piece, scale, squash)
             if is_white(shape.fill):
                 continue
             if shape.fill is not None and closed:
@@ -805,13 +835,21 @@ def draw_shape(msp, shape: Shape, scale: float, layer: str, clip: tuple[float, f
 
 
 def content_clip_for_aspect(aspect: str) -> tuple[float, float, float, float] | None:
-    if aspect == "16:9":
-        return None
-    return (CROP_4X3_LEFT, ACTIVE[1], CROP_4X3_RIGHT, ACTIVE[3])
+    """Region selection never crops the 16:9 artwork.
+
+    Native 4:3 output fits the full pattern by squeezing X; it does not
+    clip to the ISO 12233:2000 4:3 arrows.
+    """
+    return None
 
 
 def rebuild_4x3_frame(msp, scale: float) -> None:
-    """Native 4:3 frame around the official 4:3 crop of the 16:9 chart."""
+    """Native 4:3 frame around the fitted (X-squeezed) active area.
+
+    The destination rectangle matches the ISO 12233:2000 4:3 crop ticks,
+    but content is mapped into it rather than cut at those ticks.
+    Coordinates here are already in destination 4:3 SVG space.
+    """
     x0, y0, x1, y1 = CROP_4X3_LEFT, ACTIVE[1], CROP_4X3_RIGHT, ACTIVE[3]
     border = BORDER_PT
     ox0, oy0, ox1, oy1 = x0 - border, y0 - border, x1 + border, y1 + border
@@ -912,7 +950,6 @@ def add_title_16x9(msp, scale: float) -> None:
 
 
 def iter_content(shapes: Sequence[Shape], aspect: str, region: str) -> Iterable[Shape]:
-    clip = content_clip_for_aspect(aspect)
     for shape in shapes:
         if region == "full":
             if aspect == "4:3" and "frame" in shape.regions:
@@ -956,14 +993,21 @@ def region_clip(shapes: Sequence[Shape], aspect: str, region: str) -> tuple[floa
     return x0, y0, x1, y1
 
 
-def add_print_notes(msp, scale: float, aspect: str, region: str, clip: tuple[float, float, float, float] | None) -> None:
+def add_print_notes(
+    msp,
+    scale: float,
+    aspect: str,
+    region: str,
+    clip: tuple[float, float, float, float] | None,
+    squash: bool = False,
+) -> None:
     ph = BASE_PH_MM * scale
     if clip:
         cx = (clip[0] + clip[2]) / 2.0
         cy = clip[1] - 18
-        x, y = svg_to_mm(cx, min(max(cy, 8), SVG_H - 8), scale)
+        x, y = svg_to_mm(cx, min(max(cy, 8), SVG_H - 8), scale, squash)
     else:
-        x, y = svg_to_mm(SVG_W / 2.0, BODY_H + 10, scale)
+        x, y = svg_to_mm(SVG_W / 2.0, BODY_H + 10, scale, squash)
     tile_h = ((clip[3] - clip[1]) / PT_PER_MM * scale) if clip else ph
     note = (
         f"Region: {region.upper()}   Aspect: {aspect}   {scale:.0f}X   "
@@ -986,6 +1030,7 @@ def write_dxf(
     doc = new_doc()
     msp = doc.modelspace()
     clip = region_clip(shapes, aspect, region)
+    squash = aspect == "4:3"
 
     if aspect == "16:9" and region == "full":
         add_frame_strips(
@@ -998,23 +1043,30 @@ def write_dxf(
         for shape in shapes:
             draw_shape(msp, shape, scale, layer_for(shape), None)
     elif aspect == "4:3" and region == "full":
+        # Frame is authored in destination 4:3 SVG space; content is the
+        # full 16:9 pattern squeezed in X onto that rectangle.
         rebuild_4x3_frame(msp, scale)
-        content_clip = content_clip_for_aspect("4:3")
         for shape in shapes:
             if "frame" in shape.regions and not shape.group.startswith("R1"):
                 continue
-            draw_shape(msp, shape, scale, layer_for(shape), content_clip)
+            draw_shape(msp, shape, scale, layer_for(shape), None, squash=True)
     else:
         if clip:
             x0, y0, x1, y1 = clip
             border = BORDER_PT * 0.35
-            add_frame_strips(msp, (x0 - border, y0 - border, x1 + border, y1 + border), clip, scale)
+            add_frame_strips(
+                msp,
+                (x0 - border, y0 - border, x1 + border, y1 + border),
+                clip,
+                scale,
+                squash=squash,
+            )
         prefer = region if region in {"center", "periphery", "sfr"} else None
         for shape in iter_content(shapes, aspect, region):
             if "frame" in shape.regions:
                 continue
-            draw_shape(msp, shape, scale, layer_for(shape, prefer), clip)
-        add_print_notes(msp, scale, aspect, region, clip)
+            draw_shape(msp, shape, scale, layer_for(shape, prefer), clip, squash=squash)
+        add_print_notes(msp, scale, aspect, region, clip, squash=squash)
 
     from ezdxf import bbox as ezbbox
 

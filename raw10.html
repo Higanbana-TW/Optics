@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#121211" />
+    <meta
+      name="description"
+      content="RAW10 Studio — 將 10-bit MIPI RAW 影像轉換成 BMP、JPG 或 PNG，全程在瀏覽器本機完成。"
+    />
+    <title>RAW10 Studio — 10-bit MIPI RAW 轉換器</title>
+  </head>
+  <body>
+    <div id="app" class="tool-page">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="Optic Player 首頁">
+          <span class="brand-mark" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </span>
+          <span>OPTIC</span>
+        </a>
+        <nav class="tool-nav" aria-label="工具切換">
+          <a href="/">播放器</a>
+          <a href="/raw10.html" class="active" aria-current="page">RAW10 轉換</a>
+        </nav>
+        <div class="topbar-right">
+          <div class="source-state">
+            <span class="status-dot"></span>
+            <span id="sourceLabel">尚未載入 RAW 檔</span>
+          </div>
+        </div>
+      </header>
+
+      <main class="raw-layout">
+        <section class="preview-shell" aria-label="RAW 預覽">
+          <div class="preview-stage" id="previewStage">
+            <canvas id="previewCanvas" width="16" height="9"></canvas>
+
+            <div class="empty-state" id="emptyState">
+              <div class="empty-graphic" aria-hidden="true">
+                <span class="orb orb-one"></span>
+                <span class="orb orb-two"></span>
+                <svg viewBox="0 0 72 72" role="img">
+                  <path d="M22 24h28v26H22z" />
+                  <path d="M22 33h28M31 24v26M40 24v26" />
+                </svg>
+              </div>
+              <p class="eyebrow">10-BIT MIPI RAW</p>
+              <h1>感測器原始資料，<em>直接看見。</em></h1>
+              <p class="empty-copy">
+                拖曳 .raw / .raw10 / .bin 檔到這裡，設定尺寸與 Bayer 排列，即可輸出 BMP、JPG 或 PNG。
+                所有運算都在你的瀏覽器完成，檔案不會上傳。
+              </p>
+              <div class="empty-actions">
+                <button class="primary-button" id="openFileButton" type="button">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5h6l2 2h9v10h-17v-12Z"/><path d="M3.5 9h17"/></svg>
+                  開啟 RAW 檔
+                </button>
+                <button class="secondary-button" id="demoButton" type="button">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5h4l1.5-2h5l1.5 2h4v10H4v-10Z"/><circle cx="12" cy="13.5" r="3"/></svg>
+                  載入示範 RAW
+                </button>
+              </div>
+            </div>
+
+            <div class="loading-state hidden" id="loadingState" aria-live="polite">
+              <span class="spinner"></span>
+              <span>正在解碼 RAW 資料…</span>
+            </div>
+
+            <div class="toast hidden" id="toast" role="status"></div>
+
+            <div class="preview-bar">
+              <span id="previewInfo">尚未載入影像</span>
+              <div class="preview-bar-actions">
+                <button class="text-button" id="zoomButton" type="button">1:1 檢視</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="export-bar">
+            <div class="export-meta">
+              <strong id="fileName">尚未載入檔案</strong>
+              <small id="fileMeta">支援 MIPI packed 10-bit 與未打包 16-bit 資料</small>
+            </div>
+            <div class="export-actions">
+              <label class="quality-field" for="qualityRange">
+                JPG 品質
+                <input id="qualityRange" type="range" min="50" max="100" step="1" value="92" />
+                <output id="qualityValue">92</output>
+              </label>
+              <button class="secondary-button" data-export="bmp" type="button">存成 BMP</button>
+              <button class="secondary-button" data-export="jpg" type="button">存成 JPG</button>
+              <button class="primary-button" data-export="png" type="button">存成 PNG</button>
+            </div>
+          </div>
+        </section>
+
+        <aside class="settings-panel" aria-label="轉換設定">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">CONVERSION</p>
+              <h2>轉換設定</h2>
+            </div>
+            <button class="text-button" id="resetButton" type="button">重設</button>
+          </div>
+
+          <fieldset class="setting-group">
+            <legend>影像尺寸</legend>
+            <div class="field-row">
+              <label class="field">
+                <span>寬度</span>
+                <input id="widthInput" type="number" min="2" max="20000" step="1" value="640" />
+              </label>
+              <label class="field">
+                <span>高度</span>
+                <input id="heightInput" type="number" min="2" max="20000" step="1" value="480" />
+              </label>
+            </div>
+            <div class="chip-row" id="sizeGuesses" hidden>
+              <span class="chip-label">可能尺寸</span>
+              <div class="chips" id="sizeChips"></div>
+            </div>
+            <div class="field-row">
+              <label class="field">
+                <span>每列位元組（0=自動）</span>
+                <input id="strideInput" type="number" min="0" max="200000" step="1" value="0" />
+              </label>
+              <label class="field">
+                <span>檔頭偏移</span>
+                <input id="offsetInput" type="number" min="0" step="1" value="0" />
+              </label>
+            </div>
+            <label class="field" id="frameField" hidden>
+              <span>影格</span>
+              <select id="frameSelect"></select>
+            </label>
+          </fieldset>
+
+          <fieldset class="setting-group">
+            <legend>RAW 格式</legend>
+            <label class="field">
+              <span>資料封裝</span>
+              <select id="packingSelect">
+                <option value="mipi10">MIPI RAW10 packed（5 bytes / 4 px）</option>
+                <option value="mipi10lsbrev">MIPI RAW10 packed（低位元反序）</option>
+                <option value="raw16le">未打包 16-bit（小端）</option>
+                <option value="raw16be">未打包 16-bit（大端）</option>
+              </select>
+            </label>
+            <div class="field-row">
+              <label class="field" id="alignField">
+                <span>16-bit 對齊</span>
+                <select id="alignSelect">
+                  <option value="lsb">靠右（值在低 10 位元）</option>
+                  <option value="msb">靠左（值在高 10 位元）</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Bayer 排列</span>
+                <select id="patternSelect">
+                  <option value="rggb">RGGB</option>
+                  <option value="bggr">BGGR</option>
+                  <option value="grbg">GRBG</option>
+                  <option value="gbrg">GBRG</option>
+                  <option value="mono">MONO（黑白）</option>
+                </select>
+              </label>
+            </div>
+            <label class="field">
+              <span>去馬賽克</span>
+              <select id="demosaicSelect">
+                <option value="bilinear">雙線性（全解析度）</option>
+                <option value="binning">2×2 合併（半解析度、無偽色）</option>
+                <option value="none">不處理（灰階 CFA）</option>
+              </select>
+            </label>
+          </fieldset>
+
+          <fieldset class="setting-group">
+            <legend>影像調整</legend>
+            <div class="field-row">
+              <label class="field">
+                <span>黑階</span>
+                <input id="blackInput" type="number" min="0" max="1023" step="1" value="64" />
+              </label>
+              <label class="field">
+                <span>白階</span>
+                <input id="whiteInput" type="number" min="1" max="1023" step="1" value="1023" />
+              </label>
+            </div>
+            <label class="field slider-field">
+              <span>曝光補償 <output id="exposureValue">0.0 EV</output></span>
+              <input id="exposureRange" type="range" min="-3" max="3" step="0.1" value="0" />
+            </label>
+            <div class="field-row triple">
+              <label class="field">
+                <span>R 增益</span>
+                <input id="gainR" type="number" min="0.1" max="8" step="0.01" value="1" />
+              </label>
+              <label class="field">
+                <span>G 增益</span>
+                <input id="gainG" type="number" min="0.1" max="8" step="0.01" value="1" />
+              </label>
+              <label class="field">
+                <span>B 增益</span>
+                <input id="gainB" type="number" min="0.1" max="8" step="0.01" value="1" />
+              </label>
+            </div>
+            <div class="field-row">
+              <label class="field">
+                <span>轉換曲線</span>
+                <select id="toneSelect">
+                  <option value="srgb">sRGB</option>
+                  <option value="gamma">Gamma</option>
+                  <option value="linear">線性</option>
+                </select>
+              </label>
+              <label class="field" id="gammaField" hidden>
+                <span>Gamma</span>
+                <input id="gammaInput" type="number" min="1" max="4" step="0.05" value="2.2" />
+              </label>
+            </div>
+            <button class="secondary-button full" id="autoButton" type="button">自動最佳化（黑白階 + 白平衡）</button>
+          </fieldset>
+
+          <p class="panel-note">
+            需要批次轉換整個資料夾？請使用命令列工具：
+            <code>node tools/raw10-convert.mjs frames/*.raw -w 1920 -h 1080 --auto -d out/</code>
+          </p>
+        </aside>
+      </main>
+
+      <footer>
+        <span>OPTIC RAW10 / 02</span>
+        <span>檔案不會離開這台裝置</span>
+      </footer>
+
+      <input id="fileInput" type="file" accept=".raw,.raw10,.mipi,.bin,.dat,application/octet-stream" hidden />
+    </div>
+    <script type="module" src="/src/raw10-app.js"></script>
+  </body>
+</html>

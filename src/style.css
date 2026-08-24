@@ -82,6 +82,28 @@ button { color: inherit; }
 .brand-mark span:nth-child(2) { bottom: 11px; transform: scale(.72); border-bottom-color: #f4f0e8; }
 .brand-mark span:nth-child(3) { bottom: 16px; transform: scale(.38); border-bottom-color: var(--orange); }
 
+.tool-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.tool-nav a {
+  padding: 6px 13px;
+  color: #9c9b95;
+  text-decoration: none;
+  font: 500 10px/1 "DM Mono", monospace;
+  letter-spacing: 0.1em;
+}
+
+.tool-nav a:hover { color: #fff; }
+.tool-nav a.active { background: var(--orange); color: #fff; }
+
+.topbar-right { display: flex; align-items: center; justify-content: flex-end; gap: 14px; min-width: 0; }
+
 .source-state {
   font: 500 11px/1 "DM Mono", monospace;
   letter-spacing: .08em;
@@ -320,7 +342,8 @@ dialog::backdrop { background: rgba(0,0,0,.75); backdrop-filter: blur(5px); }
 .help-content dd { margin: 0; color: #aaa; font-size: 11px; }
 
 @media (max-width: 720px) {
-  .topbar { grid-template-columns: 1fr auto; padding: 0 18px; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 18px; }
+  .tool-nav a { padding: 6px 9px; }
   .source-state { display: none; }
   main { width: calc(100% - 24px); margin-top: 22px; }
   .video-stage { min-height: 350px; aspect-ratio: 4 / 5; }

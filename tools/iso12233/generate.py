@@ -6,10 +6,11 @@ Source geometry is the public vector recreation published by Stephen H. Westin
 the published 2000 chart features (hyperbolic wedges, slanted-edge SFR bars,
 framing arrows). 4x output uses an 800 mm active picture height (4 × 200 mm).
 
-The official 2000 visual chart is 16:9. Native 4:3 files keep the same
-picture height and squeeze the full pattern in X (factor 0.75) so every
-feature — including T1/T2 H-bars and outer L-squares — fits a 4:3 plate.
-They are not a crop of the 16:9 arrows.
+The official 2000 visual chart is 16:9. Native 4:3 files keep every
+feature’s shape (no anamorphic squeeze). The four corner crosses are
+translated so their centres sit at 0.7 of the 4:3 half-diagonal, the
+same field point they occupy on the 16:9 plate. The centre zone plate
+stays put.
 
 Regions can be isolated by DXF layer or by exporting a cropped file:
     FRAME, CENTER, PERIPHERY, SFR, LABELS
@@ -21,7 +22,7 @@ import argparse
 import math
 import re
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Iterable, Sequence
 from xml.etree import ElementTree as ET
@@ -48,14 +49,23 @@ ACTIVE_W = ACTIVE[2] - ACTIVE[0]
 ACTIVE_H = ACTIVE[3] - ACTIVE[1]
 CENTER_X = (ACTIVE[0] + ACTIVE[2]) / 2.0
 CENTER_Y = (ACTIVE[1] + ACTIVE[3]) / 2.0
-# Official 4:3 crop ticks on the 16:9 chart (element D). The native 4:3
-# export does not crop to these ticks: it squeezes the full 16:9 artwork
-# in X about CENTER_X so every feature fits this same 4:3 rectangle.
+# Official 4:3 crop ticks on the 16:9 chart (element D) — also the native
+# 4:3 active rectangle (same picture height, width = 4/3 × height).
 CROP_4X3_LEFT = 182.694
 CROP_4X3_RIGHT = CENTER_X * 2.0 - CROP_4X3_LEFT
-# (4/3) / (16/9) = 0.75. Horizontal-only fit keeps picture height (and
-# therefore LW/PH labels) unchanged, matching commercial 4:3 plates.
-SQUASH_4X3 = (4.0 / 3.0) / (16.0 / 9.0)
+ACTIVE_4X3 = (CROP_4X3_LEFT, ACTIVE[1], CROP_4X3_RIGHT, ACTIVE[3])
+ACTIVE_4X3_W = CROP_4X3_RIGHT - CROP_4X3_LEFT
+HALF_DIAG_16X9 = math.hypot(ACTIVE_W, ACTIVE_H) / 2.0
+HALF_DIAG_4X3 = math.hypot(ACTIVE_4X3_W, ACTIVE_H) / 2.0
+# Peripheral visual-resolution crosses sit at this fraction of the
+# half-diagonal (centre → corner). Measured ~0.73 on the 16:9 artwork.
+FIELD_FRACTION = 0.7
+QUAD_CORNERS_4X3 = {
+    "LT": (CROP_4X3_LEFT, ACTIVE[1]),
+    "RT": (CROP_4X3_RIGHT, ACTIVE[1]),
+    "LB": (CROP_4X3_LEFT, ACTIVE[3]),
+    "RB": (CROP_4X3_RIGHT, ACTIVE[3]),
+}
 
 BASE_PH_MM = 200.0  # 1X active height
 
@@ -587,25 +597,116 @@ def assign_regions(shape: Shape) -> None:
         shape.regions.add("labels")
 
 
-def fit_x(x: float, squash: bool) -> float:
-    """Map 16:9 SVG X into the native 4:3 active width when squash is set."""
-    if not squash:
-        return x
-    return CENTER_X + (x - CENTER_X) * SQUASH_4X3
-
-
-def svg_to_mm(x: float, y: float, scale: float, squash: bool = False) -> tuple[float, float]:
+def svg_to_mm(x: float, y: float, scale: float) -> tuple[float, float]:
     mm = scale / PT_PER_MM
-    x = fit_x(x, squash)
     return x * mm, (SVG_H - y) * mm
 
 
-def poly_to_mm(
-    poly: Sequence[tuple[float, float]],
-    scale: float,
-    squash: bool = False,
-) -> list[tuple[float, float]]:
-    return [svg_to_mm(x, y, scale, squash) for x, y in poly]
+def poly_to_mm(poly: Sequence[tuple[float, float]], scale: float) -> list[tuple[float, float]]:
+    return [svg_to_mm(x, y, scale) for x, y in poly]
+
+
+def _quadrant(cx: float, cy: float) -> str:
+    return ("L" if cx < CENTER_X else "R") + ("B" if cy > CENTER_Y else "T")
+
+
+def _radius_frac(cx: float, cy: float) -> float:
+    return math.hypot(cx - CENTER_X, cy - CENTER_Y) / HALF_DIAG_16X9
+
+
+def is_corner_cross_shape(shape: Shape) -> bool:
+    """Four peripheral plus-clusters (JS/KS wedges, F squares, L1 corners)."""
+    bbox = shape.bbox
+    if bbox is None:
+        return False
+    cx, cy = bbox_center(bbox)
+    nx = abs(cx - CENTER_X) / (ACTIVE_W / 2.0)
+    ny = abs(cy - CENTER_Y) / (ACTIVE_H / 2.0)
+    if nx < 0.45 or _radius_frac(cx, cy) < 0.55:
+        return False
+    g = shape.group
+    if g.startswith('"F"') or g.startswith("JS") or g.startswith("KS"):
+        return True
+    if g.startswith("L1") and ny > 0.35:
+        return True
+    return False
+
+
+def is_side_hbar(shape: Shape) -> bool:
+    return shape.group.startswith("T1")
+
+
+def plus_center(cluster: Sequence[Shape]) -> tuple[float, float]:
+    """Centre of a corner cross: intersection of KS horizontal and vertical arms."""
+    hs: list[tuple[float, float]] = []
+    vs: list[tuple[float, float]] = []
+    for shape in cluster:
+        if not shape.group.startswith("KS") or shape.kind != "path" or not shape.bbox:
+            continue
+        x0, y0, x1, y1 = shape.bbox
+        w, h = x1 - x0, y1 - y0
+        c = bbox_center(shape.bbox)
+        if w > h * 1.5:
+            hs.append(c)
+        elif h > w * 1.5:
+            vs.append(c)
+    if vs and hs:
+        return sum(p[0] for p in vs) / len(vs), sum(p[1] for p in hs) / len(hs)
+    fs = [s for s in cluster if s.group.startswith('"F"') and s.bbox]
+    if fs:
+        pts = [bbox_center(s.bbox) for s in fs]
+        return sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
+    raise ValueError("corner cluster has no measurable plus centre")
+
+
+def field_point_4x3(quad: str) -> tuple[float, float]:
+    x, y = QUAD_CORNERS_4X3[quad]
+    return (
+        CENTER_X + FIELD_FRACTION * (x - CENTER_X),
+        CENTER_Y + FIELD_FRACTION * (y - CENTER_Y),
+    )
+
+
+def translate_shape(shape: Shape, dx: float, dy: float) -> Shape:
+    polys = [[(x + dx, y + dy) for x, y in poly] for poly in shape.polylines]
+    insert = (shape.insert[0] + dx, shape.insert[1] + dy)
+    return replace(shape, polylines=polys, insert=insert)
+
+
+def layout_native_4x3(shapes: Sequence[Shape]) -> list[Shape]:
+    """4:3 layout: translate the four corner crosses, do not deform anything.
+
+    Each plus centre moves to 0.7 of the 4:3 half-diagonal along that
+    quadrant's corner. T1/T2 H-bars shift in X with the same side offset
+    so they stay between the two crosses. Centre zone plate is unchanged.
+    """
+    crosses: dict[str, list[Shape]] = {q: [] for q in QUAD_CORNERS_4X3}
+    hbars: list[Shape] = []
+    rest: list[Shape] = []
+    for shape in shapes:
+        if is_corner_cross_shape(shape):
+            cx, cy = bbox_center(shape.bbox)
+            crosses[_quadrant(cx, cy)].append(shape)
+        elif is_side_hbar(shape):
+            hbars.append(shape)
+        else:
+            rest.append(shape)
+    out = list(rest)
+    dx_by_side: dict[str, float] = {}
+    for quad, cluster in crosses.items():
+        if not cluster:
+            continue
+        cx, cy = plus_center(cluster)
+        tx, ty = field_point_4x3(quad)
+        dx, dy = tx - cx, ty - cy
+        dx_by_side[quad[0]] = dx
+        for shape in cluster:
+            out.append(translate_shape(shape, dx, dy))
+    for shape in hbars:
+        cx, _cy = bbox_center(shape.bbox)
+        side = "L" if cx < CENTER_X else "R"
+        out.append(translate_shape(shape, dx_by_side.get(side, 0.0), 0.0))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -773,7 +874,6 @@ def add_frame_strips(
     inner: tuple[float, float, float, float],
     scale: float,
     layer: str = "FRAME",
-    squash: bool = False,
 ) -> None:
     ox0, oy0, ox1, oy1 = outer
     ix0, iy0, ix1, iy1 = inner
@@ -787,10 +887,10 @@ def add_frame_strips(
         add_filled_polygon(
             msp,
             [
-                svg_to_mm(a, b, scale, squash),
-                svg_to_mm(c, b, scale, squash),
-                svg_to_mm(c, d, scale, squash),
-                svg_to_mm(a, d, scale, squash),
+                svg_to_mm(a, b, scale),
+                svg_to_mm(c, b, scale),
+                svg_to_mm(c, d, scale),
+                svg_to_mm(a, d, scale),
             ],
             layer,
         )
@@ -802,7 +902,6 @@ def draw_shape(
     scale: float,
     layer: str,
     clip: tuple[float, float, float, float] | None,
-    squash: bool = False,
 ) -> None:
     if shape.group in {"Black_border", "White_background"}:
         return
@@ -810,7 +909,7 @@ def draw_shape(
         x, y = shape.insert
         if clip and not (clip[0] <= x <= clip[2] and clip[1] <= y <= clip[3]):
             return
-        px, py = svg_to_mm(x, y, scale, squash)
+        px, py = svg_to_mm(x, y, scale)
         height = max(shape.font_size * scale / PT_PER_MM, 1.6)
         msp.add_text(
             shape.text,
@@ -823,7 +922,7 @@ def draw_shape(
         closed = shape.closed or (len(poly) >= 4 and poly[0] == poly[-1])
         pieces = clip_polyline(poly, clip, closed=closed) if clip else [list(poly)]
         for piece in pieces:
-            pts = poly_to_mm(piece, scale, squash)
+            pts = poly_to_mm(piece, scale)
             if is_white(shape.fill):
                 continue
             if shape.fill is not None and closed:
@@ -835,20 +934,17 @@ def draw_shape(
 
 
 def content_clip_for_aspect(aspect: str) -> tuple[float, float, float, float] | None:
-    """Region selection never crops the 16:9 artwork.
-
-    Native 4:3 output fits the full pattern by squeezing X; it does not
-    clip to the ISO 12233:2000 4:3 arrows.
-    """
+    """4:3 drawings clip to the 4:3 active rectangle after crosses are moved."""
+    if aspect == "4:3":
+        return ACTIVE_4X3
     return None
 
 
 def rebuild_4x3_frame(msp, scale: float) -> None:
-    """Native 4:3 frame around the fitted (X-squeezed) active area.
+    """Native 4:3 frame around the official 4:3 active rectangle.
 
-    The destination rectangle matches the ISO 12233:2000 4:3 crop ticks,
-    but content is mapped into it rather than cut at those ticks.
-    Coordinates here are already in destination 4:3 SVG space.
+    Corner crosses are translated into this rectangle; they are not cropped
+    at the 16:9 4:3 arrows and they are not anamorphically squeezed.
     """
     x0, y0, x1, y1 = CROP_4X3_LEFT, ACTIVE[1], CROP_4X3_RIGHT, ACTIVE[3]
     border = BORDER_PT
@@ -999,15 +1095,14 @@ def add_print_notes(
     aspect: str,
     region: str,
     clip: tuple[float, float, float, float] | None,
-    squash: bool = False,
 ) -> None:
     ph = BASE_PH_MM * scale
     if clip:
         cx = (clip[0] + clip[2]) / 2.0
         cy = clip[1] - 18
-        x, y = svg_to_mm(cx, min(max(cy, 8), SVG_H - 8), scale, squash)
+        x, y = svg_to_mm(cx, min(max(cy, 8), SVG_H - 8), scale)
     else:
-        x, y = svg_to_mm(SVG_W / 2.0, BODY_H + 10, scale, squash)
+        x, y = svg_to_mm(SVG_W / 2.0, BODY_H + 10, scale)
     tile_h = ((clip[3] - clip[1]) / PT_PER_MM * scale) if clip else ph
     note = (
         f"Region: {region.upper()}   Aspect: {aspect}   {scale:.0f}X   "
@@ -1029,8 +1124,9 @@ def write_dxf(
 ) -> Path:
     doc = new_doc()
     msp = doc.modelspace()
+    if aspect == "4:3":
+        shapes = layout_native_4x3(shapes)
     clip = region_clip(shapes, aspect, region)
-    squash = aspect == "4:3"
 
     if aspect == "16:9" and region == "full":
         add_frame_strips(
@@ -1043,13 +1139,11 @@ def write_dxf(
         for shape in shapes:
             draw_shape(msp, shape, scale, layer_for(shape), None)
     elif aspect == "4:3" and region == "full":
-        # Frame is authored in destination 4:3 SVG space; content is the
-        # full 16:9 pattern squeezed in X onto that rectangle.
         rebuild_4x3_frame(msp, scale)
         for shape in shapes:
             if "frame" in shape.regions and not shape.group.startswith("R1"):
                 continue
-            draw_shape(msp, shape, scale, layer_for(shape), None, squash=True)
+            draw_shape(msp, shape, scale, layer_for(shape), ACTIVE_4X3)
     else:
         if clip:
             x0, y0, x1, y1 = clip
@@ -1059,14 +1153,13 @@ def write_dxf(
                 (x0 - border, y0 - border, x1 + border, y1 + border),
                 clip,
                 scale,
-                squash=squash,
             )
         prefer = region if region in {"center", "periphery", "sfr"} else None
         for shape in iter_content(shapes, aspect, region):
             if "frame" in shape.regions:
                 continue
-            draw_shape(msp, shape, scale, layer_for(shape, prefer), clip, squash=squash)
-        add_print_notes(msp, scale, aspect, region, clip, squash=squash)
+            draw_shape(msp, shape, scale, layer_for(shape, prefer), clip)
+        add_print_notes(msp, scale, aspect, region, clip)
 
     from ezdxf import bbox as ezbbox
 

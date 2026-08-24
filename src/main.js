@@ -1,329 +1,180 @@
-import Hls from "hls.js";
 import "./style.css";
+import {
+  BAYER_PATTERNS,
+  demosaicRaw10,
+  encodeBmp,
+  expectedRaw10Bytes,
+  packedRowBytes,
+  unpackRaw10,
+} from "./raw10.js";
 
 const $ = (selector) => document.querySelector(selector);
-const video = $("#video");
-const videoStage = $("#videoStage");
-const emptyState = $("#emptyState");
-const loadingState = $("#loadingState");
-const sourceLabel = $("#sourceLabel");
-const statusDot = $(".status-dot");
-const seekBar = $("#seekBar");
-const volumeBar = $("#volumeBar");
-const currentTime = $("#currentTime");
-const durationLabel = $("#duration");
-const playIcon = $(".play-icon");
-const pauseIcon = $(".pause-icon");
-const volumeIcon = $(".volume-icon");
-const mutedIcon = $(".muted-icon");
-const bufferBar = $("#bufferBar");
-const streamDialog = $("#streamDialog");
-const helpDialog = $("#helpDialog");
-const streamUrl = $("#streamUrl");
 const fileInput = $("#fileInput");
-const toast = $("#toast");
+const dropZone = $("#dropZone");
+const form = $("#settingsForm");
+const canvas = $("#previewCanvas");
+const previewEmpty = $("#previewEmpty");
+const processing = $("#processing");
+const fileName = $("#fileName");
+const fileMeta = $("#fileMeta");
+const status = $("#status");
+const convertButton = $("#convertButton");
+const downloadButton = $("#downloadButton");
+const strideInput = $("#stride");
+const widthInput = $("#width");
+const heightInput = $("#height");
 
-let hls = null;
-let objectUrl = null;
-let toastTimer = null;
-let speedIndex = 0;
-const playbackSpeeds = [1, 1.25, 1.5, 1.75, 2, 0.5, 0.75];
-const demoStream = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8";
+let selectedFile = null;
+let outputBlob = null;
+let outputExtension = "";
 
-function formatTime(value) {
-  if (!Number.isFinite(value)) return video.duration === Infinity ? "LIVE" : "00:00";
-  const hours = Math.floor(value / 3600);
-  const minutes = Math.floor((value % 3600) / 60);
-  const seconds = Math.floor(value % 60);
-  return `${hours ? `${String(hours).padStart(2, "0")}:` : ""}${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
 }
 
-function showToast(message, type = "") {
-  window.clearTimeout(toastTimer);
-  toast.textContent = message;
-  toast.className = `toast ${type}`.trim();
-  toastTimer = window.setTimeout(() => toast.classList.add("hidden"), 3400);
+function setStatus(message, type = "") {
+  status.textContent = message;
+  status.className = `status-message ${type}`.trim();
 }
 
-function setLoading(isLoading) {
-  loadingState.classList.toggle("hidden", !isLoading);
+function resetOutput() {
+  outputBlob = null;
+  downloadButton.disabled = true;
+  canvas.classList.add("hidden");
+  previewEmpty.classList.remove("hidden");
 }
 
-function resetSource() {
-  if (hls) {
-    hls.destroy();
-    hls = null;
-  }
-  if (objectUrl) {
-    URL.revokeObjectURL(objectUrl);
-    objectUrl = null;
-  }
-  video.pause();
-  video.removeAttribute("src");
-  video.load();
-  seekBar.value = 0;
-  seekBar.style.setProperty("--range-progress", "0%");
-  bufferBar.style.width = "0";
-}
-
-async function startPlayback() {
-  try {
-    await video.play();
-  } catch {
-    showToast("媒體已載入，按下播放鍵即可開始");
-  }
-}
-
-function markSourceReady(label) {
-  sourceLabel.textContent = label;
-  statusDot.classList.add("active");
-  emptyState.classList.add("hidden");
-  videoStage.classList.add("has-media");
-}
-
-function openFilePicker() {
-  fileInput.click();
-}
-
-function loadFile(file) {
+function selectFile(file) {
   if (!file) return;
-  if (!file.type.startsWith("video/") && !file.type.startsWith("audio/")) {
-    showToast("請選擇影音檔案", "error");
-    return;
-  }
-  resetSource();
-  objectUrl = URL.createObjectURL(file);
-  video.src = objectUrl;
-  markSourceReady(file.name);
-  setLoading(true);
-  startPlayback();
+  selectedFile = file;
+  fileName.textContent = file.name;
+  fileMeta.textContent = `${formatBytes(file.size)} · 本機處理，不會上傳`;
+  dropZone.classList.add("has-file");
+  convertButton.disabled = false;
+  resetOutput();
+  updateSizeHint();
+  setStatus("檔案已就緒，請確認影像參數");
 }
 
-function isHlsUrl(url) {
+function currentDimensions() {
+  const width = Number(widthInput.value);
+  const height = Number(heightInput.value);
+  const minimumStride = Number.isInteger(width) && width > 0 ? packedRowBytes(width) : 0;
+  const stride = strideInput.value === "" ? minimumStride : Number(strideInput.value);
+  return { width, height, stride, minimumStride };
+}
+
+function updateSizeHint() {
   try {
-    return new URL(url).pathname.toLowerCase().endsWith(".m3u8");
+    const { width, height, stride, minimumStride } = currentDimensions();
+    $("#strideHint").textContent = minimumStride ? `最小 ${minimumStride} bytes；留空自動計算` : "依影像寬度自動計算";
+    const expected = expectedRaw10Bytes(width, height, stride);
+    $("#expectedSize").textContent = `預期 RAW 大小 ${formatBytes(expected)}`;
+    if (selectedFile && selectedFile.size < expected) {
+      setStatus(`檔案不足 ${formatBytes(expected)}，請檢查寬、高或 stride`, "error");
+    }
   } catch {
-    return false;
+    $("#expectedSize").textContent = "輸入尺寸後顯示預期檔案大小";
   }
 }
 
-function loadStream(url) {
-  const cleanUrl = url.trim();
-  if (!cleanUrl) return;
-
-  resetSource();
-  markSourceReady(new URL(cleanUrl).hostname);
-  setLoading(true);
-
-  if (isHlsUrl(cleanUrl) && Hls.isSupported()) {
-    hls = new Hls({
-      enableWorker: true,
-      lowLatencyMode: true,
-      backBufferLength: 60,
-    });
-    hls.loadSource(cleanUrl);
-    hls.attachMedia(video);
-    hls.on(Hls.Events.MANIFEST_PARSED, startPlayback);
-    hls.on(Hls.Events.ERROR, (_, data) => {
-      if (!data.fatal) return;
-      setLoading(false);
-      if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-        hls.recoverMediaError();
-      } else {
-        showToast("無法讀取串流，請確認網址與 CORS 設定", "error");
-        hls.destroy();
-        hls = null;
-      }
-    });
-    return;
-  }
-
-  if (isHlsUrl(cleanUrl) && video.canPlayType("application/vnd.apple.mpegurl")) {
-    video.src = cleanUrl;
-    startPlayback();
-    return;
-  }
-
-  video.src = cleanUrl;
-  startPlayback();
+async function canvasToBlob(type, quality) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("瀏覽器無法建立輸出影像"))), type, quality);
+  });
 }
 
-function togglePlayback() {
-  if (!video.currentSrc) {
-    showToast("請先開啟影音來源");
-    return;
-  }
-  if (video.paused) startPlayback();
-  else video.pause();
-}
+async function convert() {
+  if (!selectedFile || !form.reportValidity()) return;
 
-function seekBy(seconds) {
-  if (!Number.isFinite(video.duration)) return;
-  video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + seconds));
-}
+  convertButton.disabled = true;
+  downloadButton.disabled = true;
+  processing.classList.remove("hidden");
+  setStatus("正在解包 RAW10 與 Bayer 去馬賽克…");
 
-function toggleMute() {
-  video.muted = !video.muted;
-}
-
-function toggleFullscreen() {
-  if (document.fullscreenElement) document.exitFullscreen();
-  else videoStage.requestFullscreen().catch(() => showToast("瀏覽器無法進入全螢幕", "error"));
-}
-
-function captureFrame() {
-  if (!video.currentSrc || video.readyState < 2) {
-    showToast("目前沒有可擷取的畫面", "error");
-    return;
-  }
-  if (!video.videoWidth || !video.videoHeight) {
-    showToast("音訊檔案沒有可擷取的畫面", "error");
-    return;
-  }
-
-  const canvas = document.createElement("canvas");
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  const context = canvas.getContext("2d");
+  await new Promise((resolve) => window.setTimeout(resolve, 20));
 
   try {
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        showToast("擷取失敗，來源可能禁止跨網域存取", "error");
-        return;
-      }
-      const link = document.createElement("a");
-      const captureUrl = URL.createObjectURL(blob);
-      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-      link.href = captureUrl;
-      link.download = `optic-capture-${stamp}.png`;
-      link.click();
-      URL.revokeObjectURL(captureUrl);
-      showToast(`已擷取 ${canvas.width} × ${canvas.height} 原始畫面`);
-    }, "image/png");
-  } catch {
-    showToast("來源未允許 CORS，瀏覽器無法擷取畫面", "error");
+    const { width, height, stride } = currentDimensions();
+    const pattern = $("#bayer").value;
+    const blackLevel = Number($("#blackLevel").value);
+    const whiteLevel = Number($("#whiteLevel").value);
+    const bytes = new Uint8Array(await selectedFile.arrayBuffer());
+    const pixels = unpackRaw10(bytes, width, height, stride);
+    const rgba = demosaicRaw10(pixels, width, height, { pattern, blackLevel, whiteLevel });
+
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext("2d").putImageData(new ImageData(rgba, width, height), 0, 0);
+
+    const format = document.querySelector('input[name="format"]:checked').value;
+    if (format === "bmp") {
+      outputBlob = encodeBmp(rgba, width, height);
+      outputExtension = "bmp";
+    } else {
+      const mimeType = format === "jpg" ? "image/jpeg" : "image/png";
+      outputBlob = await canvasToBlob(mimeType, format === "jpg" ? 0.92 : undefined);
+      outputExtension = format;
+    }
+
+    canvas.classList.remove("hidden");
+    previewEmpty.classList.add("hidden");
+    downloadButton.disabled = false;
+    const extraBytes = bytes.byteLength - expectedRaw10Bytes(width, height, stride);
+    setStatus(
+      `完成：${width} × ${height} · ${pattern} · ${outputExtension.toUpperCase()}${extraBytes > 0 ? `（忽略尾端 ${formatBytes(extraBytes)}）` : ""}`,
+      "success",
+    );
+  } catch (error) {
+    resetOutput();
+    setStatus(error instanceof Error ? error.message : "轉換失敗", "error");
+  } finally {
+    processing.classList.add("hidden");
+    convertButton.disabled = false;
   }
 }
 
-function openStreamDialog() {
-  streamDialog.showModal();
-  window.setTimeout(() => streamUrl.focus(), 50);
+function download() {
+  if (!outputBlob || !selectedFile) return;
+  const url = URL.createObjectURL(outputBlob);
+  const link = document.createElement("a");
+  const baseName = selectedFile.name.replace(/\.[^.]+$/, "") || "raw10";
+  link.href = url;
+  link.download = `${baseName}.${outputExtension}`;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-["#openFileButton", "#fileCard"].forEach((selector) => $(selector).addEventListener("click", openFilePicker));
-["#openStreamButton", "#streamCard"].forEach((selector) => $(selector).addEventListener("click", openStreamDialog));
-["#captureButton", "#captureCard"].forEach((selector) => $(selector).addEventListener("click", captureFrame));
+if (!BAYER_PATTERNS.includes($("#bayer").value)) {
+  $("#bayer").value = "RGGB";
+}
 
-$("#playButton").addEventListener("click", togglePlayback);
-$("#backButton").addEventListener("click", () => seekBy(-10));
-$("#forwardButton").addEventListener("click", () => seekBy(10));
-$("#muteButton").addEventListener("click", toggleMute);
-$("#fullscreenButton").addEventListener("click", toggleFullscreen);
-$("#helpButton").addEventListener("click", () => helpDialog.showModal());
-$("#helpCloseButton").addEventListener("click", () => helpDialog.close());
-
-$("#speedButton").addEventListener("click", (event) => {
-  speedIndex = (speedIndex + 1) % playbackSpeeds.length;
-  video.playbackRate = playbackSpeeds[speedIndex];
-  event.currentTarget.textContent = `${playbackSpeeds[speedIndex]}×`;
-});
-
-fileInput.addEventListener("change", () => loadFile(fileInput.files[0]));
-
-$("#streamForm").addEventListener("submit", (event) => {
-  event.preventDefault();
-  if (!streamUrl.reportValidity()) return;
-  const url = streamUrl.value;
-  streamDialog.close();
-  loadStream(url);
-});
-
-$("#demoStreamButton").addEventListener("click", () => {
-  streamUrl.value = demoStream;
-  streamDialog.close();
-  loadStream(demoStream);
-});
-
-video.addEventListener("click", togglePlayback);
-video.addEventListener("dblclick", toggleFullscreen);
-video.addEventListener("play", () => {
-  playIcon.classList.add("hidden");
-  pauseIcon.classList.remove("hidden");
-  $("#playButton").setAttribute("aria-label", "暫停");
-});
-video.addEventListener("pause", () => {
-  playIcon.classList.remove("hidden");
-  pauseIcon.classList.add("hidden");
-  $("#playButton").setAttribute("aria-label", "播放");
-});
-video.addEventListener("loadedmetadata", () => {
-  durationLabel.textContent = formatTime(video.duration);
-});
-video.addEventListener("loadeddata", () => setLoading(false));
-video.addEventListener("canplay", () => setLoading(false));
-video.addEventListener("waiting", () => setLoading(true));
-video.addEventListener("playing", () => setLoading(false));
-video.addEventListener("error", () => {
-  setLoading(false);
-  showToast("媒體載入失敗，請檢查格式、網址或跨網域設定", "error");
-});
-
-video.addEventListener("timeupdate", () => {
-  currentTime.textContent = formatTime(video.currentTime);
-  if (Number.isFinite(video.duration) && video.duration > 0) {
-    const progress = (video.currentTime / video.duration) * 100;
-    seekBar.value = Math.round(progress * 10);
-    seekBar.style.setProperty("--range-progress", `${progress}%`);
-  }
-});
-
-video.addEventListener("progress", () => {
-  if (!video.buffered.length || !Number.isFinite(video.duration)) return;
-  bufferBar.style.width = `${(video.buffered.end(video.buffered.length - 1) / video.duration) * 100}%`;
-});
-
-video.addEventListener("volumechange", () => {
-  const isMuted = video.muted || video.volume === 0;
-  volumeIcon.classList.toggle("hidden", isMuted);
-  mutedIcon.classList.toggle("hidden", !isMuted);
-  volumeBar.value = video.muted ? 0 : video.volume;
-  volumeBar.style.setProperty("--range-progress", `${volumeBar.value * 100}%`);
-});
-
-seekBar.addEventListener("input", () => {
-  if (!Number.isFinite(video.duration)) return;
-  const progress = Number(seekBar.value) / 1000;
-  video.currentTime = progress * video.duration;
-  seekBar.style.setProperty("--range-progress", `${progress * 100}%`);
-});
-
-volumeBar.addEventListener("input", () => {
-  video.muted = false;
-  video.volume = Number(volumeBar.value);
-});
-
-document.addEventListener("keydown", (event) => {
-  if (event.target.matches("input")) return;
-  const key = event.key.toLowerCase();
-  if (event.code === "Space") {
+dropZone.addEventListener("click", () => fileInput.click());
+dropZone.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" || event.key === " ") {
     event.preventDefault();
-    togglePlayback();
-  } else if (event.key === "ArrowLeft") seekBy(-10);
-  else if (event.key === "ArrowRight") seekBy(10);
-  else if (key === "c") captureFrame();
-  else if (key === "f") toggleFullscreen();
-  else if (key === "m") toggleMute();
+    fileInput.click();
+  }
 });
-
-videoStage.addEventListener("dragover", (event) => {
+dropZone.addEventListener("dragover", (event) => {
   event.preventDefault();
-  event.dataTransfer.dropEffect = "copy";
+  dropZone.classList.add("is-dragging");
 });
-videoStage.addEventListener("drop", (event) => {
+dropZone.addEventListener("dragleave", () => dropZone.classList.remove("is-dragging"));
+dropZone.addEventListener("drop", (event) => {
   event.preventDefault();
-  loadFile(event.dataTransfer.files[0]);
+  dropZone.classList.remove("is-dragging");
+  selectFile(event.dataTransfer.files[0]);
 });
+fileInput.addEventListener("change", () => selectFile(fileInput.files[0]));
+form.addEventListener("submit", (event) => {
+  event.preventDefault();
+  convert();
+});
+downloadButton.addEventListener("click", download);
+[widthInput, heightInput, strideInput].forEach((input) => input.addEventListener("input", updateSizeHint));
+document.querySelectorAll('input[name="format"]').forEach((input) => input.addEventListener("change", resetOutput));
 
-volumeBar.style.setProperty("--range-progress", "100%");
+updateSizeHint();

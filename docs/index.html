@@ -100,7 +100,7 @@
   <main class="panel">
     <h1>西門子星產生器</h1>
     <p class="intro">
-      完全在瀏覽器內產生滿版向量圖，不需安裝 Python 或任何程式。
+      完全在瀏覽器內產生滿版 DXF／SVG，不需安裝 Python 或任何程式。
     </p>
 
     <label for="angle">區隔角度</label>
@@ -121,10 +121,16 @@
       <option value="landscape">橫向</option>
     </select>
 
-    <button id="download" type="button">下載 SVG 圖片</button>
+    <label for="file-format">下載格式</label>
+    <select id="file-format">
+      <option value="dxf">DXF（CAD，毫米單位）</option>
+      <option value="svg">SVG（向量圖片）</option>
+    </select>
+
+    <button id="download" type="button">下載 DXF 檔案</button>
     <p class="note">
-      列印時請選擇「實際大小」或 100%，並關閉「符合頁面」，
-      才能維持正確的 A3／A4 實體尺寸。
+      DXF 使用毫米單位及填滿的 SOLID 圖元。列印時請選擇
+      「實際大小」或 100%，並關閉「符合頁面」。
     </p>
   </main>
 
@@ -141,6 +147,7 @@
     const angleSelect = document.querySelector("#angle");
     const paperSelect = document.querySelector("#paper");
     const orientationSelect = document.querySelector("#orientation");
+    const formatSelect = document.querySelector("#file-format");
     const preview = document.querySelector("#preview");
     const downloadButton = document.querySelector("#download");
 
@@ -156,6 +163,86 @@
         [width, height] = [height, width];
       }
       return { paper, angle, width, height, orientation: orientationSelect.value };
+    }
+
+    function clipEdge(points, inside, intersection) {
+      const output = [];
+      for (let index = 0; index < points.length; index += 1) {
+        const current = points[index];
+        const previous = points[(index + points.length - 1) % points.length];
+        const currentInside = inside(current);
+        const previousInside = inside(previous);
+        if (currentInside) {
+          if (!previousInside) output.push(intersection(previous, current));
+          output.push(current);
+        } else if (previousInside) {
+          output.push(intersection(previous, current));
+        }
+      }
+      return output;
+    }
+
+    function clipToPage(points, width, height) {
+      let result = points;
+      result = clipEdge(
+        result,
+        point => point[0] >= 0,
+        (from, to) => {
+          const ratio = (0 - from[0]) / (to[0] - from[0]);
+          return [0, from[1] + ratio * (to[1] - from[1])];
+        }
+      );
+      result = clipEdge(
+        result,
+        point => point[0] <= width,
+        (from, to) => {
+          const ratio = (width - from[0]) / (to[0] - from[0]);
+          return [width, from[1] + ratio * (to[1] - from[1])];
+        }
+      );
+      result = clipEdge(
+        result,
+        point => point[1] >= 0,
+        (from, to) => {
+          const ratio = (0 - from[1]) / (to[1] - from[1]);
+          return [from[0] + ratio * (to[0] - from[0]), 0];
+        }
+      );
+      return clipEdge(
+        result,
+        point => point[1] <= height,
+        (from, to) => {
+          const ratio = (height - from[1]) / (to[1] - from[1]);
+          return [from[0] + ratio * (to[0] - from[0]), height];
+        }
+      );
+    }
+
+    function createBlackPolygons() {
+      const { angle, width, height } = settings();
+      const centerX = width / 2;
+      const centerY = height / 2;
+      const radius = Math.hypot(width, height) * 2;
+      const sectorCount = Math.round(360 / angle);
+      const polygons = [];
+
+      for (let index = 0; index < sectorCount; index += 2) {
+        const start = (-90 + index * angle) * Math.PI / 180;
+        const end = (-90 + (index + 1) * angle) * Math.PI / 180;
+        const triangle = [
+          [centerX, centerY],
+          [
+            centerX + radius * Math.cos(start),
+            centerY + radius * Math.sin(start),
+          ],
+          [
+            centerX + radius * Math.cos(end),
+            centerY + radius * Math.sin(end),
+          ],
+        ];
+        polygons.push(clipToPage(triangle, width, height));
+      }
+      return polygons;
     }
 
     function createSvg() {
@@ -195,29 +282,82 @@
         `clip-path="url(#paper-clip)">${paths.join("")}</g></svg>`;
     }
 
+    function createDxf() {
+      const { width, height } = settings();
+      const lines = [
+        "0", "SECTION", "2", "HEADER",
+        "9", "$ACADVER", "1", "AC1015",
+        "9", "$INSUNITS", "70", "4",
+        "9", "$MEASUREMENT", "70", "1",
+        "9", "$EXTMIN", "10", "0", "20", "0", "30", "0",
+        "9", "$EXTMAX", "10", format(width), "20", format(height), "30", "0",
+        "0", "ENDSEC",
+        "0", "SECTION", "2", "TABLES",
+        "0", "TABLE", "2", "LAYER", "70", "1",
+        "0", "LAYER", "2", "SIEMENS_STAR", "70", "0",
+        "62", "7", "6", "CONTINUOUS",
+        "0", "ENDTAB", "0", "ENDSEC",
+        "0", "SECTION", "2", "ENTITIES",
+      ];
+
+      for (const polygon of createBlackPolygons()) {
+        for (let index = 1; index < polygon.length - 1; index += 1) {
+          const triangle = [polygon[0], polygon[index], polygon[index + 1]];
+          const dxfPoints = triangle.map(([x, y]) => [x, height - y]);
+          lines.push(
+            "0", "SOLID", "8", "SIEMENS_STAR", "62", "7",
+            "10", format(dxfPoints[0][0]),
+            "20", format(dxfPoints[0][1]), "30", "0",
+            "11", format(dxfPoints[1][0]),
+            "21", format(dxfPoints[1][1]), "31", "0",
+            "12", format(dxfPoints[2][0]),
+            "22", format(dxfPoints[2][1]), "32", "0",
+            "13", format(dxfPoints[2][0]),
+            "23", format(dxfPoints[2][1]), "33", "0"
+          );
+        }
+      }
+
+      lines.push("0", "ENDSEC", "0", "EOF");
+      return lines.join("\r\n") + "\r\n";
+    }
+
     function updatePreview() {
       preview.innerHTML = createSvg();
     }
 
-    function downloadSvg() {
-      const { paper, angle, orientation } = settings();
-      const content = `<?xml version="1.0" encoding="UTF-8"?>\n${createSvg()}`;
-      const blob = new Blob([content], { type: "image/svg+xml;charset=utf-8" });
+    function triggerDownload(content, mimeType, filename) {
+      const blob = new Blob([content], { type: mimeType });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download =
-        `siemens_star_${paper.toLowerCase()}_${angle}deg_${orientation}.svg`;
+      link.download = filename;
       document.body.appendChild(link);
       link.click();
       link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
 
+    function downloadFile() {
+      const { paper, angle, orientation } = settings();
+      const basename =
+        `siemens_star_${paper.toLowerCase()}_${angle}deg_${orientation}`;
+      if (formatSelect.value === "dxf") {
+        triggerDownload(createDxf(), "application/dxf", `${basename}.dxf`);
+      } else {
+        const svg = `<?xml version="1.0" encoding="UTF-8"?>\n${createSvg()}`;
+        triggerDownload(svg, "image/svg+xml;charset=utf-8", `${basename}.svg`);
+      }
+    }
+
     [angleSelect, paperSelect, orientationSelect].forEach(element => {
       element.addEventListener("change", updatePreview);
     });
-    downloadButton.addEventListener("click", downloadSvg);
+    formatSelect.addEventListener("change", () => {
+      const label = formatSelect.value === "dxf" ? "DXF 檔案" : "SVG 圖片";
+      downloadButton.textContent = `下載 ${label}`;
+    });
+    downloadButton.addEventListener("click", downloadFile);
     updatePreview();
   </script>
 </body>

@@ -1105,11 +1105,15 @@ def layout_4k(shapes: Sequence[Shape], freq_mult: float | None = None) -> list[S
                 out.append(shape)
             continue
         xf, kind, k = info
-        moved = _apply_xy(shape, xf, k)
-        if freq_mult is not None:
-            moved = relabel_frequency(moved, freq_mult)
+        # Keep labels at the original stations along the wedge; only the
+        # bars are pitch-squeezed. Two-digit Enhanced numbers stay readable.
+        if shape.kind == "text":
+            if freq_mult is not None:
+                moved = relabel_frequency(shape, freq_mult)
+            else:
+                moved = _relabel_kind(shape, kind)
         else:
-            moved = _relabel_kind(moved, kind)
+            moved = _apply_xy(shape, xf, k)
         out.append(moved)
     out.extend(_densify_op(op_src, 3))
     return out

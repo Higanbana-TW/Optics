@@ -1193,12 +1193,13 @@ LAYER_DEFS = [
     ("SFR", 7, "Slanted-edge SFR bars, H-bars, corner squares"),
     ("LABELS", 7, "Frequency and aspect-ratio labels"),
     ("NOTES", 7, "Print notes and picture-height callouts"),
-    ("GLUE", 1, "A4 tile glue strip, dashed join line, registration"),
+    ("GLUE", 1, "A3 tile glue strip, dashed join line, registration"),
 ]
 
-# Home-print A4 poster: landscape sheet and duplicated overlap for gluing.
-A4_W_MM = 297.0
-A4_H_MM = 210.0
+# Home-print A3 poster: landscape sheet and duplicated overlap for gluing.
+# Two A3 landscape (420 × 297) side by side, height flush, split left/right.
+A3_W_MM = 420.0
+A3_H_MM = 297.0
 GLUE_OVERLAP_MM = 12.0
 
 
@@ -1670,18 +1671,18 @@ def write_dxf(
     return dest
 
 
-def _a4_fit_scale(iso_scale: float) -> float:
-    """Scale factor that makes the 16:9 plate height fill A4 landscape (210 mm)."""
+def _a3_fit_scale(iso_scale: float) -> float:
+    """Scale factor that makes the 16:9 plate height fill A3 landscape (297 mm)."""
     plate_h_mm = BODY_H * iso_scale / PT_PER_MM
-    return A4_H_MM / plate_h_mm
+    return A3_H_MM / plate_h_mm
 
 
-def _a4_plate_width_mm(iso_scale: float, fit: float) -> float:
+def _a3_plate_width_mm(iso_scale: float, fit: float) -> float:
     return SVG_W * iso_scale / PT_PER_MM * fit
 
 
-def _a4_to_mm(iso_scale: float, fit: float, page_x0: float, src_fitted_x0: float):
-    """Map SVG → A4 page mm. Plate is flush with the 210 mm sheet height."""
+def _a3_to_mm(iso_scale: float, fit: float, page_x0: float, src_fitted_x0: float):
+    """Map SVG → A3 page mm. Plate is flush with the 297 mm sheet height."""
     unit = iso_scale / PT_PER_MM
     y_off = (SVG_H - BODY_H) * unit
 
@@ -1698,7 +1699,7 @@ def _add_reg_cross(msp, x: float, y: float, arm: float = 4.0) -> None:
     msp.add_line((x, y - arm), (x, y + arm), dxfattribs=attribs)
 
 
-def add_a4_glue_overlay(
+def add_a3_glue_overlay(
     msp,
     *,
     page: int,
@@ -1710,7 +1711,7 @@ def add_a4_glue_overlay(
     uhd: bool = False,
 ) -> None:
     """Dashed join line, registration ticks, and margin instructions."""
-    y0, y1 = 0.0, A4_H_MM
+    y0, y1 = 0.0, A3_H_MM
     if page == 1:
         glue_x = page_x0 + content_w - overlap
         margin_x = page_x0 + content_w + 8.0
@@ -1730,15 +1731,15 @@ def add_a4_glue_overlay(
         yb = min(y + 4.0, y1)
         msp.add_line((glue_x, y), (glue_x, yb), dxfattribs=glue)
         y = yb + 3.0
-    # Outer crop rectangle of the A4 sheet.
+    # Outer crop rectangle of the A3 sheet.
     msp.add_lwpolyline(
-        [(0.0, 0.0), (A4_W_MM, 0.0), (A4_W_MM, A4_H_MM), (0.0, A4_H_MM), (0.0, 0.0)],
+        [(0.0, 0.0), (A3_W_MM, 0.0), (A3_W_MM, A3_H_MM), (0.0, A3_H_MM), (0.0, 0.0)],
         dxfattribs={"layer": "GLUE", "color": 1, "lineweight": 18},
     )
     _add_reg_cross(msp, glue_x, y0 + 8.0)
     _add_reg_cross(msp, glue_x, y1 - 8.0)
     tick = 0.0
-    while tick <= A4_H_MM + 0.1:
+    while tick <= A3_H_MM + 0.1:
         msp.add_line(
             (glue_x - 2.0, tick),
             (glue_x + 2.0, tick),
@@ -1750,7 +1751,7 @@ def add_a4_glue_overlay(
     printed_ph = ph * fit
     kind = "4K" if uhd else f"{iso_scale:.0f}X"
     notes = [
-        f"ISO 12233 16:9  {kind}  A4 {side}",
+        f"ISO 12233 16:9  {kind}  A3 {side}",
         glue_note,
         f"Overlap {overlap:.0f} mm   match crosses + ticks",
         f"Active PH on this print = {printed_ph:.0f} mm"
@@ -1759,44 +1760,48 @@ def add_a4_glue_overlay(
         "Print 100% / actual size, landscape, no 'fit to page'",
     ]
     height = 2.6
-    y = A4_H_MM - 14.0
+    y = A3_H_MM - 14.0
     for line in notes:
         text = msp.add_text(line, height=height, dxfattribs={"layer": "NOTES", "color": 1})
         text.set_placement((margin_x, y), align=align)
         y -= 5.5
 
 
-def write_a4_tiles(
+def write_a3_tiles(
     shapes: Sequence[Shape],
     out_dir: Path,
     *,
     scale: float,
     uhd: bool = False,
 ) -> list[Path]:
-    """Split a 16:9 plate across two A4 landscape sheets with a glue overlap.
+    """Split a 16:9 plate across two A3 landscape sheets with a glue overlap.
 
-    The 16:9 chart is scaled so its plate height is flush with A4 (210 mm),
+    The 16:9 chart is scaled so its plate height is flush with A3 (297 mm),
     then cut left/right. The 12 mm overlap is duplicated chart, not a blank
     tab, so the pattern can be aligned after printing.
     """
     if uhd:
         shapes = layout_4k(shapes)
-    fit = _a4_fit_scale(scale)
-    fitted_w = _a4_plate_width_mm(scale, fit)
+    fit = _a3_fit_scale(scale)
+    fitted_w = _a3_plate_width_mm(scale, fit)
     overlap = GLUE_OVERLAP_MM
     content_w = (fitted_w + overlap) / 2.0
+    if content_w > A3_W_MM + 1e-6:
+        raise ValueError(
+            f"A3 tile content width {content_w:.1f} mm exceeds sheet {A3_W_MM:.0f} mm"
+        )
     # SVG x of the split (page 1 right edge / page 2 left edge of unique content).
     k = scale / PT_PER_MM * fit
     page_specs = (
         # page, page_x0, src_fitted_x0, svg_x0, svg_x1
         (1, 0.0, 0.0, 0.0, content_w / k),
-        (2, A4_W_MM - content_w, fitted_w - content_w, (fitted_w - content_w) / k, SVG_W),
+        (2, A3_W_MM - content_w, fitted_w - content_w, (fitted_w - content_w) / k, SVG_W),
     )
     written: list[Path] = []
     out_dir.mkdir(parents=True, exist_ok=True)
     for page, page_x0, src_fitted_x0, svg_x0, svg_x1 in page_specs:
         clip = (svg_x0, 0.0, svg_x1, BODY_H)
-        to_mm = _a4_to_mm(scale, fit, page_x0, src_fitted_x0)
+        to_mm = _a3_to_mm(scale, fit, page_x0, src_fitted_x0)
         doc = new_doc()
         msp = doc.modelspace()
         add_frame_strips(
@@ -1817,7 +1822,7 @@ def write_a4_tiles(
                 to_mm=to_mm,
                 size_scale=fit,
             )
-        add_a4_glue_overlay(
+        add_a3_glue_overlay(
             msp,
             page=page,
             content_w=content_w,
@@ -1828,9 +1833,9 @@ def write_a4_tiles(
             uhd=uhd,
         )
         tag = f"4k_{scale:.0f}x" if uhd else f"{scale:.0f}x"
-        dest = out_dir / f"iso12233_16x9_{tag}_a4_{page}of2.dxf"
+        dest = out_dir / f"iso12233_16x9_{tag}_a3_{page}of2.dxf"
         extmin = (0.0, 0.0, 0.0)
-        extmax = (A4_W_MM, A4_H_MM, 0.0)
+        extmax = (A3_W_MM, A3_H_MM, 0.0)
         _fit_active_vport(doc, extmin, extmax)
         dest.parent.mkdir(parents=True, exist_ok=True)
         doc.saveas(dest)
@@ -1939,9 +1944,9 @@ def main(argv: list[str] | None = None) -> int:
         help="4K 本数 after Edmund 58-941 Enhanced: J 6-20, KS to 40, JS 6-9, O/P 12-30.",
     )
     parser.add_argument(
-        "--a4-tiles",
+        "--a3-tiles",
         action="store_true",
-        help="Also write two A4 landscape tiles with a glue overlap (16:9 full).",
+        help="Also write two A3 landscape tiles with a glue overlap (16:9 full).",
     )
     args = parser.parse_args(argv)
 
@@ -1965,10 +1970,10 @@ def main(argv: list[str] | None = None) -> int:
             )
             written.append(path)
             print(f"wrote {path} ({path.stat().st_size / 1024:.0f} KiB)")
-    if args.a4_tiles:
+    if args.a3_tiles:
         if "16:9" not in aspects:
-            raise SystemExit("--a4-tiles requires 16:9 (the official visual chart)")
-        tiles = write_a4_tiles(shapes, args.out, scale=args.scale, uhd=args.uhd)
+            raise SystemExit("--a3-tiles requires 16:9 (the official visual chart)")
+        tiles = write_a3_tiles(shapes, args.out, scale=args.scale, uhd=args.uhd)
         written.extend(tiles)
         for path in tiles:
             print(f"wrote {path} ({path.stat().st_size / 1024:.0f} KiB)")

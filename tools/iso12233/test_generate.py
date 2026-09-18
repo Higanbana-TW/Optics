@@ -13,12 +13,13 @@ import ezdxf
 from ezdxf import bbox
 
 from generate import (
-    A4_H_MM,
-    A4_W_MM,
+    A3_H_MM,
+    A3_W_MM,
     ACTIVE,
     ACTIVE_H,
     ACTIVE_W,
     BASE_PH_MM,
+    BODY_H,
     CENTER_X,
     CENTER_Y,
     CROP_4X3_LEFT,
@@ -28,6 +29,7 @@ from generate import (
     EIAJ_FIELD_NY,
     GLUE_OVERLAP_MM,
     HALF_DIAG_16X9,
+    SVG_W,
     bbox_center,
     clip_polyline,
     field_point_4x3,
@@ -38,8 +40,10 @@ from generate import (
     parse_path,
     plus_center,
     translate_shape,
-    write_a4_tiles,
+    write_a3_tiles,
     write_dxf,
+    _a3_fit_scale,
+    _a3_plate_width_mm,
     _cluster_freq_mult,
     _cluster_hyperbolic_wedges,
     _is_op_line,
@@ -328,23 +332,33 @@ class DxfOutputTests(unittest.TestCase):
         self.assertAlmostEqual(w2 * 2.0, w4, delta=3.0)
         self.assertAlmostEqual(h2 * 2.0, h4, delta=3.0)
 
-    def test_a4_tiles_are_two_landscape_sheets_with_glue(self) -> None:
-        tiles = write_a4_tiles(self.shapes, self.out, scale=2.0)
+    def test_a3_tiles_are_two_landscape_sheets_with_glue(self) -> None:
+        tiles = write_a3_tiles(self.shapes, self.out, scale=2.0)
         self.assertEqual(len(tiles), 2)
-        self.assertTrue(tiles[0].name.endswith("a4_1of2.dxf"))
-        self.assertTrue(tiles[1].name.endswith("a4_2of2.dxf"))
+        self.assertTrue(tiles[0].name.endswith("a3_1of2.dxf"))
+        self.assertTrue(tiles[1].name.endswith("a3_2of2.dxf"))
+        fit = _a3_fit_scale(2.0)
+        fitted_w = _a3_plate_width_mm(2.0, fit)
+        self.assertAlmostEqual(fitted_w, A3_H_MM * SVG_W / BODY_H, delta=1.0)
+        content_w = (fitted_w + GLUE_OVERLAP_MM) / 2.0
+        self.assertLess(content_w, A3_W_MM)
         for path in tiles:
             doc = ezdxf.readfile(path)
             ext = bbox.extents(doc.modelspace())
             width = ext.extmax.x - ext.extmin.x
             height = ext.extmax.y - ext.extmin.y
-            self.assertAlmostEqual(width, A4_W_MM, delta=2.0)
-            self.assertAlmostEqual(height, A4_H_MM, delta=2.0)
+            self.assertAlmostEqual(width, A3_W_MM, delta=2.0)
+            self.assertAlmostEqual(height, A3_H_MM, delta=2.0)
             layers = {e.dxf.layer for e in doc.modelspace()}
             self.assertIn("GLUE", layers)
             self.assertIn("CENTER", layers)
             solids = sum(1 for e in doc.modelspace() if e.dxftype() == "SOLID")
             self.assertGreater(solids, 50)
+            notes = " ".join(
+                e.dxf.text for e in doc.modelspace() if e.dxftype() == "TEXT" and e.dxf.layer == "NOTES"
+            )
+            self.assertIn("A3", notes)
+            self.assertNotIn("A4", notes)
         self.assertGreater(GLUE_OVERLAP_MM, 5.0)
 
     def test_4k_pitch_by_region_not_global_double(self) -> None:

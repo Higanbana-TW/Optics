@@ -66,30 +66,30 @@ The published 2000 visual chart is a **1080p-class** plate: corner JS about **20
 
 ```bash
 python3 tools/iso12233/generate.py --aspect 16:9 --region full --scale 4 --4k --preview
-python3 tools/iso12233/generate.py --aspect 16:9 --region full --scale 2 --4k --a4-tiles --preview
+python3 tools/iso12233/generate.py --aspect 16:9 --region full --scale 2 --4k --a3-tiles --preview
 ```
 
 - `iso12233_16x9_4k_4x_full.dxf` — 4K 本数, 4× print (800 mm PH)
 - `iso12233_16x9_4k_2x_full.dxf` — same 本数, 2× print (400 mm PH)
-- `iso12233_16x9_4k_2x_a4_1of2.dxf` / `..._2of2.dxf` — two A4 landscape sheets with glue lines
+- `iso12233_16x9_4k_2x_a3_1of2.dxf` / `..._2of2.dxf` — two A3 landscape sheets with glue lines
 
-### 16:9 1080p at 2×, split onto two A4 sheets
+### 16:9 1080p at 2×, split onto two A3 sheets
 
 4× 16:9 is the large plate (`iso12233_16x9_4x_full.dxf`, 800 mm picture height). Compress 2×:
 
 ```bash
-python3 tools/iso12233/generate.py --aspect 16:9 --region full --scale 2 --a4-tiles --preview
+python3 tools/iso12233/generate.py --aspect 16:9 --region full --scale 2 --a3-tiles --preview
 ```
 
 That writes:
 
 - `iso12233_16x9_2x_full.dxf` — 2× plate (400 mm picture height)
-- `iso12233_16x9_2x_a4_1of2.dxf` — A4 landscape **left**
-- `iso12233_16x9_2x_a4_2of2.dxf` — A4 landscape **right**
+- `iso12233_16x9_2x_a3_1of2.dxf` — A3 landscape **left**
+- `iso12233_16x9_2x_a3_2of2.dxf` — A3 landscape **right**
 
-A 2× plate at 100% is much larger than two A4s, so the A4 files scale the 2× chart so its **top and bottom are flush with the 210 mm A4 height**, then split left/right. A **12 mm overlap** of real chart is duplicated on both sheets (layer `GLUE`): dashed join line, registration crosses, and 20 mm ticks. Print **actual size / 100%**, landscape, no “fit to page”. Glue the 12 mm strip on page 1 **under** page 2, matching the crosses.
+A 2× plate at 100% is larger than two A3s in height, so the A3 files scale the 2× chart so its **top and bottom are flush with the 297 mm A3 height**, then split left/right. A **12 mm overlap** of real chart is duplicated on both sheets (layer `GLUE`): dashed join line, registration crosses, and 20 mm ticks. Print **actual size / 100%**, landscape, no “fit to page”. Glue the 12 mm strip on page 1 **under** page 2, matching the crosses.
 
-Labeled LW/PH is for the 2× 400 mm picture height. On the A4 print the active height is smaller; the `NOTES` line gives the multiply factor if that sheet fills the camera frame.
+Labeled LW/PH is for the 2× 400 mm picture height. On the A3 print the active height is smaller; the `NOTES` line gives the multiply factor if that sheet fills the camera frame.
 
 ## Tests
 

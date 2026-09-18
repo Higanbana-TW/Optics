@@ -47,7 +47,20 @@ python3 tools/iso12233/generate.py --scale 4 --preview
 
 `--scale 4` is 4× of the 200 mm 1X chart. Use `--aspect 16:9|4:3` and `--region full|center|periphery|sfr` to build a subset.
 
-### 16:9 at 2×, split onto two A4 sheets
+### 4K 本数 (not 1080p)
+
+The published 2000 visual chart is a **1080p-class** plate: corner JS wedges about **100–200 LW/PH**, centre KS to **2000 LW/PH** (label `20`). A 4K sensor needs roughly twice that. `--4k` keeps the 16:9 frame and corner positions, **shrinks the wedges by ½** (circles stay round), and **doubles every frequency number** (centre `20` → `40` = **4000 LW/PH**).
+
+```bash
+python3 tools/iso12233/generate.py --aspect 16:9 --region full --scale 4 --4k --preview
+python3 tools/iso12233/generate.py --aspect 16:9 --region full --scale 2 --4k --a4-tiles --preview
+```
+
+- `iso12233_16x9_4k_4x_full.dxf` — 4K 本数, 4× print (800 mm PH)
+- `iso12233_16x9_4k_2x_full.dxf` — same 本数, 2× print (400 mm PH)
+- `iso12233_16x9_4k_2x_a4_1of2.dxf` / `..._2of2.dxf` — two A4 landscape sheets with glue lines
+
+### 16:9 1080p at 2×, split onto two A4 sheets
 
 4× 16:9 is the large plate (`iso12233_16x9_4x_full.dxf`, 800 mm picture height). Compress 2×:
 

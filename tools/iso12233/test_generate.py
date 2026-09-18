@@ -32,6 +32,7 @@ from generate import (
     clip_polyline,
     field_point_4x3,
     is_corner_cross_shape,
+    layout_4k,
     layout_native_4x3,
     load_svg,
     parse_path,
@@ -341,6 +342,56 @@ class DxfOutputTests(unittest.TestCase):
             solids = sum(1 for e in doc.modelspace() if e.dxftype() == "SOLID")
             self.assertGreater(solids, 50)
         self.assertGreater(GLUE_OVERLAP_MM, 5.0)
+
+    def test_4k_doubles_ben_shu_and_keeps_circles_round(self) -> None:
+        original = load_svg(DEFAULT_SVG)
+        uhd = layout_4k(original)
+        orig_nums = {s.text for s in original if s.kind == "text" and s.text.isdigit()}
+        new_nums = {s.text for s in uhd if s.kind == "text" and s.text.isdigit()}
+        self.assertIn("20", orig_nums)
+        self.assertNotIn("40", orig_nums)
+        self.assertIn("40", new_nums)
+        self.assertNotIn("1", new_nums)
+        crop = {s.text for s in uhd if s.kind == "text"}
+        self.assertIn("16:9", crop)
+        self.assertIn("4:3", crop)
+        self.assertIn("1:1", crop)
+
+        def zone_plate(shapes):
+            found = [
+                s
+                for s in shapes
+                if s.group.startswith("C:_Center") and s.bbox and s.kind == "path"
+            ]
+            found.sort(key=lambda s: (s.bbox[2] - s.bbox[0]) * (s.bbox[3] - s.bbox[1]), reverse=True)
+            return found
+
+        zp0 = zone_plate(original)
+        zp1 = zone_plate(uhd)
+        self.assertTrue(zp0 and zp1)
+        w0 = zp0[0].bbox[2] - zp0[0].bbox[0]
+        h0 = zp0[0].bbox[3] - zp0[0].bbox[1]
+        w1 = zp1[0].bbox[2] - zp1[0].bbox[0]
+        h1 = zp1[0].bbox[3] - zp1[0].bbox[1]
+        self.assertAlmostEqual(w0 / h0, 1.0, places=2)
+        self.assertAlmostEqual(w1 / h1, 1.0, places=2)
+        self.assertAlmostEqual(w1 * 2.0, w0, delta=2.0)
+
+        clusters0: dict[str, list] = defaultdict(list)
+        clusters1: dict[str, list] = defaultdict(list)
+        for shape in original:
+            if is_corner_cross_shape(shape):
+                cx, cy = bbox_center(shape.bbox)
+                clusters0[("L" if cx < CENTER_X else "R") + ("B" if cy > CENTER_Y else "T")].append(shape)
+        for shape in uhd:
+            if is_corner_cross_shape(shape):
+                cx, cy = bbox_center(shape.bbox)
+                clusters1[("L" if cx < CENTER_X else "R") + ("B" if cy > CENTER_Y else "T")].append(shape)
+        for quad in clusters0:
+            x0, y0 = plus_center(clusters0[quad])
+            x1, y1 = plus_center(clusters1[quad])
+            self.assertAlmostEqual(x0, x1, delta=1.5)
+            self.assertAlmostEqual(y0, y1, delta=1.5)
 
 
 if __name__ == "__main__":

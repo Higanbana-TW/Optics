@@ -699,6 +699,93 @@ def translate_shape(shape: Shape, dx: float, dy: float) -> Shape:
     return replace(shape, polylines=polys, insert=insert)
 
 
+def scale_shape(shape: Shape, cx: float, cy: float, k: float) -> Shape:
+    """Isotropic scale about (cx, cy). Circles stay round."""
+    polys = [
+        [(cx + k * (x - cx), cy + k * (y - cy)) for x, y in poly]
+        for poly in shape.polylines
+    ]
+    insert = (cx + k * (shape.insert[0] - cx), cy + k * (shape.insert[1] - cy))
+    return replace(shape, polylines=polys, insert=insert, font_size=shape.font_size * k)
+
+
+def relabel_frequency(shape: Shape, mult: float) -> Shape:
+    """Double (etc.) ISO LW/PH 本数. Leave 16:9 / 4:3 / 1:1 crop labels alone."""
+    if shape.kind != "text":
+        return shape
+    if shape.group.startswith("D:") or shape.group in FRAME_GROUPS or shape.group == "credit":
+        return shape
+    raw = shape.text.strip()
+    if not raw.isdigit():
+        return shape
+    value = int(round(int(raw) * mult))
+    return replace(shape, text=str(value))
+
+
+FREQ_MULT_4K = 2.0  # 1080p chart max 2000 LW/PH → 4K max 4000
+
+
+def _collect_corner_clusters(
+    shapes: Sequence[Shape],
+) -> tuple[dict[str, list[Shape]], dict[str, tuple[float, float]], list[Shape], list[Shape]]:
+    crosses: dict[str, list[Shape]] = {q: [] for q in QUAD_CORNERS_4X3}
+    hbars: list[Shape] = []
+    rest: list[Shape] = []
+    for shape in shapes:
+        if is_corner_cross_shape(shape):
+            cx, cy = bbox_center(shape.bbox)
+            crosses[_quadrant(cx, cy)].append(shape)
+        elif is_side_hbar(shape):
+            hbars.append(shape)
+        else:
+            rest.append(shape)
+    pluses: dict[str, tuple[float, float]] = {}
+    for quad, cluster in crosses.items():
+        if cluster:
+            pluses[quad] = plus_center(cluster)
+    kept: list[Shape] = []
+    for shape in rest:
+        quad = _nearest_plus_quad(shape, pluses) if pluses else None
+        if quad:
+            crosses[quad].append(shape)
+        else:
+            kept.append(shape)
+    return crosses, pluses, hbars, kept
+
+
+def layout_4k(shapes: Sequence[Shape], freq_mult: float = FREQ_MULT_4K) -> list[Shape]:
+    """4K 本数: twice the spatial frequency of the 1080p ISO 12233:2000 plate.
+
+    Wedges shrink by 1/2 (still round, not squeezed). Numeric LW/PH labels
+    double (centre 20 → 40 = 4000 LW/PH). Frame, crop arrows, and 16:9
+    marks stay. Corner pluses stay at the same field points.
+    """
+    k = 1.0 / freq_mult
+    crosses, pluses, hbars, rest = _collect_corner_clusters(shapes)
+    out: list[Shape] = []
+    for shape in rest:
+        if "frame" in shape.regions:
+            out.append(shape)
+            continue
+        scaled = scale_shape(shape, CENTER_X, CENTER_Y, k)
+        out.append(relabel_frequency(scaled, freq_mult))
+    for quad, cluster in crosses.items():
+        if quad not in pluses:
+            continue
+        cx, cy = pluses[quad]
+        for shape in cluster:
+            scaled = scale_shape(shape, cx, cy, k)
+            out.append(relabel_frequency(scaled, freq_mult))
+    for shape in hbars:
+        if not shape.bbox:
+            out.append(relabel_frequency(shape, freq_mult))
+            continue
+        cx, cy = bbox_center(shape.bbox)
+        scaled = scale_shape(shape, cx, cy, k)
+        out.append(relabel_frequency(scaled, freq_mult))
+    return out
+
+
 def drop_overlapping_center(shape: Shape) -> bool:
     """4:3: drop square-wave sweeps that collide; keep centre 本数 wedges.
 
@@ -1101,12 +1188,19 @@ def rebuild_4x3_frame(msp, scale: float) -> None:
     ).set_placement((title_x, title_y), align=TextEntityAlignment.MIDDLE_CENTER)
 
 
-def add_title_16x9(msp, scale: float) -> None:
+def add_title_16x9(msp, scale: float, *, uhd: bool = False) -> None:
     ph = BASE_PH_MM * scale
     pw = ph * 16.0 / 9.0
     x, y = svg_to_mm(SVG_W / 2.0, 12, scale)
+    if uhd:
+        note = (
+            f"ISO 12233 16:9  4K  {scale:.0f}X   active {pw:.0f} x {ph:.0f} mm   "
+            f"100x LW/PH   centre to 4000   corners ~400-1000"
+        )
+    else:
+        note = f"ISO 12233 16:9  {scale:.0f}X   active {pw:.0f} x {ph:.0f} mm   values in 100x LW/PH"
     msp.add_text(
-        f"ISO 12233 16:9  {scale:.0f}X   active {pw:.0f} x {ph:.0f} mm   values in 100x LW/PH",
+        note,
         height=max(3.5 * scale / 4.0 * 4, 2.8),
         dxfattribs={"layer": "NOTES", "color": 250},
     ).set_placement((x, y), align=TextEntityAlignment.MIDDLE_CENTER)
@@ -1188,9 +1282,12 @@ def write_dxf(
     aspect: str,
     region: str,
     scale: float,
+    uhd: bool = False,
 ) -> Path:
     doc = new_doc()
     msp = doc.modelspace()
+    if uhd:
+        shapes = layout_4k(shapes)
     if aspect == "4:3":
         shapes = layout_native_4x3(shapes)
     clip = region_clip(shapes, aspect, region)
@@ -1202,7 +1299,7 @@ def write_dxf(
             ACTIVE,
             scale,
         )
-        add_title_16x9(msp, scale)
+        add_title_16x9(msp, scale, uhd=uhd)
         for shape in shapes:
             draw_shape(msp, shape, scale, layer_for(shape), None)
     elif aspect == "4:3" and region == "full":
@@ -1277,6 +1374,7 @@ def add_a4_glue_overlay(
     overlap: float,
     iso_scale: float,
     fit: float,
+    uhd: bool = False,
 ) -> None:
     """Dashed join line, registration ticks, and margin instructions."""
     y0, y1 = 0.0, A4_H_MM
@@ -1317,11 +1415,13 @@ def add_a4_glue_overlay(
 
     ph = BASE_PH_MM * iso_scale
     printed_ph = ph * fit
+    kind = "4K" if uhd else f"{iso_scale:.0f}X"
     notes = [
-        f"ISO 12233 16:9  {iso_scale:.0f}X  A4 {side}",
+        f"ISO 12233 16:9  {kind}  A4 {side}",
         glue_note,
         f"Overlap {overlap:.0f} mm   match crosses + ticks",
-        f"Active PH on this print = {printed_ph:.0f} mm",
+        f"Active PH on this print = {printed_ph:.0f} mm"
+        + ("   centre 本数 to 4000" if uhd else ""),
         f"If this sheet fills the camera frame, multiply LW/PH by {ph / printed_ph:.2f}",
         "Print 100% / actual size, landscape, no 'fit to page'",
     ]
@@ -1338,6 +1438,7 @@ def write_a4_tiles(
     out_dir: Path,
     *,
     scale: float,
+    uhd: bool = False,
 ) -> list[Path]:
     """Split a 16:9 plate across two A4 landscape sheets with a glue overlap.
 
@@ -1345,6 +1446,8 @@ def write_a4_tiles(
     then cut left/right. The 12 mm overlap is duplicated chart, not a blank
     tab, so the pattern can be aligned after printing.
     """
+    if uhd:
+        shapes = layout_4k(shapes)
     fit = _a4_fit_scale(scale)
     fitted_w = _a4_plate_width_mm(scale, fit)
     overlap = GLUE_OVERLAP_MM
@@ -1389,8 +1492,10 @@ def write_a4_tiles(
             overlap=overlap,
             iso_scale=scale,
             fit=fit,
+            uhd=uhd,
         )
-        dest = out_dir / f"iso12233_16x9_{scale:.0f}x_a4_{page}of2.dxf"
+        tag = f"4k_{scale:.0f}x" if uhd else f"{scale:.0f}x"
+        dest = out_dir / f"iso12233_16x9_{tag}_a4_{page}of2.dxf"
         extmin = (0.0, 0.0, 0.0)
         extmax = (A4_W_MM, A4_H_MM, 0.0)
         _fit_active_vport(doc, extmin, extmax)
@@ -1495,6 +1600,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--region", choices=("full", "center", "periphery", "sfr", "all"), default="all")
     parser.add_argument("--preview", action="store_true", help="Also rasterize PNG previews")
     parser.add_argument(
+        "--4k",
+        dest="uhd",
+        action="store_true",
+        help="4K 本数: double LW/PH (centre 2000→4000). Frame size unchanged.",
+    )
+    parser.add_argument(
         "--a4-tiles",
         action="store_true",
         help="Also write two A4 landscape tiles with a glue overlap (16:9 full).",
@@ -1506,16 +1617,25 @@ def main(argv: list[str] | None = None) -> int:
     aspects = ("16:9", "4:3") if args.aspect == "all" else (args.aspect,)
     regions = ("full", "center", "periphery", "sfr") if args.region == "all" else (args.region,)
     written: list[Path] = []
+    size_tag = f"{args.scale:.0f}x"
+    freq_tag = "4k_" if args.uhd else ""
     for aspect in aspects:
         for region in regions:
-            name = f"iso12233_{aspect_slug(aspect)}_{args.scale:.0f}x_{region}.dxf"
-            path = write_dxf(shapes, args.out / name, aspect=aspect, region=region, scale=args.scale)
+            name = f"iso12233_{aspect_slug(aspect)}_{freq_tag}{size_tag}_{region}.dxf"
+            path = write_dxf(
+                shapes,
+                args.out / name,
+                aspect=aspect,
+                region=region,
+                scale=args.scale,
+                uhd=args.uhd,
+            )
             written.append(path)
             print(f"wrote {path} ({path.stat().st_size / 1024:.0f} KiB)")
     if args.a4_tiles:
         if "16:9" not in aspects:
             raise SystemExit("--a4-tiles requires 16:9 (the official visual chart)")
-        tiles = write_a4_tiles(shapes, args.out, scale=args.scale)
+        tiles = write_a4_tiles(shapes, args.out, scale=args.scale, uhd=args.uhd)
         written.extend(tiles)
         for path in tiles:
             print(f"wrote {path} ({path.stat().st_size / 1024:.0f} KiB)")

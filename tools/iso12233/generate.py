@@ -712,7 +712,11 @@ def relabel_frequency(shape: Shape, mult: float) -> Shape:
     return replace(shape, text=str(value))
 
 
-FREQ_MULT_4K = 2.0  # 1080p chart max 2000 LW/PH → 4K max 4000
+FREQ_MULT_4K = 2.0  # centre KS high end: 2000 → 4000 LW/PH
+FREQ_MULT_4K_JS = 4.0  # corner JS: 200-500 → 800-2000
+FREQ_MULT_4K_J = 5.0  # centre J: 100-600 → 500-3000
+FREQ_MULT_4K_KS_CORNER = 20.0 / 9.0  # corner KS: 600-900 → 1333-2000
+_CENTER_WEDGE_LEN = 120.0  # SVG; centre J/KS ~170, corner JS/KS ~85
 _WEDGE_PREFIXES = ("JS", "KS", "J1")
 
 
@@ -882,41 +886,59 @@ def _pitch_map(cluster: Sequence[Shape], k: float):
     return xf
 
 
-def _apply_xy(shape: Shape, xf) -> Shape:
+def _apply_xy(shape: Shape, xf, k: float = 1.0) -> Shape:
     polys = [[xf(x, y) for x, y in poly] for poly in shape.polylines]
     insert = xf(*shape.insert)
-    return replace(shape, polylines=polys, insert=insert)
+    return replace(shape, polylines=polys, insert=insert, stroke_width=shape.stroke_width * k)
 
 
-def layout_4k(shapes: Sequence[Shape], freq_mult: float = FREQ_MULT_4K) -> list[Shape]:
-    """4K 本数: half the line pitch, same wedge length.
+def _cluster_freq_mult(cluster: Sequence[Shape]) -> float:
+    """4K 本数 are not a global ×2.
 
-    Hyperbolic J / JS / KS / KD wedges stay as long as on the 1080p plate;
-    only the bundle width (線寬 / 線距) is halved, which doubles LW/PH.
-    Labels stay along the wedge and the numbers double (centre 20 → 40 =
-    4000). Frame, crop marks, SFR squares, O/P bursts, and the zone plate
-    are not shrunk.
+    Periphery (JS + corner KS / KD) covers about 500-2000 LW/PH; the
+    centre pack (J + long KS) covers about 500-4000. Pitch is squeezed
+    by 1/mult so labels stay honest.
     """
-    k = 1.0 / freq_mult
+    prefix = _wedge_prefix(cluster[0].group) or ""
+    axis = _principal_axis(cluster[0])
+    length = axis[1] if axis else 0.0
+    if prefix == "JS":
+        return FREQ_MULT_4K_JS
+    if prefix == "J1":
+        return FREQ_MULT_4K_J
+    if prefix == "KS" and length < _CENTER_WEDGE_LEN:
+        return FREQ_MULT_4K_KS_CORNER
+    return FREQ_MULT_4K
+
+
+def layout_4k(shapes: Sequence[Shape], freq_mult: float | None = None) -> list[Shape]:
+    """4K 本数: squeeze line pitch, keep wedge length.
+
+    Not a uniform double. JS corners ×4 (to 2000), corner KS ×20/9
+    (to 2000), centre J ×5 (from 500), centre KS ×2 (to 4000). Frame,
+    SFR, O/P bursts, and the zone plate stay.
+    """
     clusters = _cluster_hyperbolic_wedges(shapes)
-    bar_xf: dict[int, object] = {}
-    xforms: list[tuple[str, object, list[tuple[float, float, float, float]]]] = []
+    bar_xf: dict[int, tuple[object, float, float]] = {}
+    xforms: list[tuple[str, object, list[tuple[float, float, float, float]], float, float]] = []
     for cluster in clusters:
+        mult = freq_mult if freq_mult is not None else _cluster_freq_mult(cluster)
+        k = 1.0 / mult
         xf = _pitch_map(cluster, k)
         prefix = _wedge_prefix(cluster[0].group) or ""
         boxes = [s.bbox for s in cluster if s.bbox]
-        xforms.append((prefix, xf, boxes))
+        xforms.append((prefix, xf, boxes, mult, k))
         for shape in cluster:
-            bar_xf[id(shape)] = xf
+            bar_xf[id(shape)] = (xf, mult, k)
 
-    def nearest_xf(shape: Shape):
+    def nearest_xform(shape: Shape):
         pref = _wedge_prefix(shape.group)
         if not pref or not shape.bbox:
             return None
         cx, cy = bbox_center(shape.bbox)
         best = None
         best_d = 1e9
-        for prefix, xf, boxes in xforms:
+        for prefix, xf, boxes, mult, k in xforms:
             if prefix != pref:
                 continue
             for x0, y0, x1, y1 in boxes:
@@ -924,17 +946,19 @@ def layout_4k(shapes: Sequence[Shape], freq_mult: float = FREQ_MULT_4K) -> list[
                 dy = 0.0 if y0 <= cy <= y1 else min(abs(cy - y0), abs(cy - y1))
                 dist = math.hypot(dx, dy)
                 if dist < best_d:
-                    best_d, best = dist, xf
+                    best_d, best = dist, (xf, mult, k)
         return best if best_d < 40.0 else None
 
     out: list[Shape] = []
     for shape in shapes:
-        xf = bar_xf.get(id(shape))
-        if xf is None and _wedge_prefix(shape.group):
-            xf = nearest_xf(shape)
-        moved = _apply_xy(shape, xf) if xf else shape
-        if xf or (shape.kind == "text" and _wedge_prefix(shape.group)):
-            moved = relabel_frequency(moved, freq_mult)
+        info = bar_xf.get(id(shape))
+        if info is None and _wedge_prefix(shape.group):
+            info = nearest_xform(shape)
+        if info is None:
+            out.append(shape)
+            continue
+        xf, mult, k = info
+        moved = relabel_frequency(_apply_xy(shape, xf, k), mult)
         out.append(moved)
     return out
 
@@ -1348,7 +1372,7 @@ def add_title_16x9(msp, scale: float, *, uhd: bool = False) -> None:
     if uhd:
         note = (
             f"ISO 12233 16:9  4K  {scale:.0f}X   active {pw:.0f} x {ph:.0f} mm   "
-            f"100x LW/PH   centre to 4000   corners ~400-1000"
+            f"100x LW/PH   centre 500-4000   periphery 500-2000"
         )
     else:
         note = f"ISO 12233 16:9  {scale:.0f}X   active {pw:.0f} x {ph:.0f} mm   values in 100x LW/PH"
@@ -1574,7 +1598,7 @@ def add_a4_glue_overlay(
         glue_note,
         f"Overlap {overlap:.0f} mm   match crosses + ticks",
         f"Active PH on this print = {printed_ph:.0f} mm"
-        + ("   centre 本数 to 4000" if uhd else ""),
+        + ("   centre 500-4000  periphery 500-2000" if uhd else ""),
         f"If this sheet fills the camera frame, multiply LW/PH by {ph / printed_ph:.2f}",
         "Print 100% / actual size, landscape, no 'fit to page'",
     ]
@@ -1756,7 +1780,7 @@ def main(argv: list[str] | None = None) -> int:
         "--4k",
         dest="uhd",
         action="store_true",
-        help="4K 本数: half J/JS/KS line pitch, same wedge length (centre 2000→4000).",
+        help="4K 本数: periphery 500-2000, centre 500-4000. Wedge length unchanged.",
     )
     parser.add_argument(
         "--a4-tiles",

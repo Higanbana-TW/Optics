@@ -49,7 +49,7 @@ python3 tools/iso12233/generate.py --scale 4 --preview
 
 ### 4K 本数 (not 1080p)
 
-The published 2000 visual chart is a **1080p-class** plate: corner JS wedges about **100–200 LW/PH**, centre KS to **2000 LW/PH** (label `20`). A 4K sensor needs roughly twice that. `--4k` keeps the 16:9 frame, corner positions, and **wedge length** (the sweep along the plate). Only J / JS / KS / KD **line width and pitch** are halved, which doubles LW/PH. Labels double (centre `20` → `40` = **4000 LW/PH**). The zone plate, SFR patches, and O/P bursts stay the same size — they are not uniformly scaled.
+The published 2000 visual chart is a **1080p-class** plate: corner JS about **200–500 LW/PH**, centre KS to **2000 LW/PH** (label `20`). A 4K sensor is not a global ×2 of that plate. `--4k` keeps the 16:9 frame, corner positions, and **wedge length**. Line pitch is squeezed per wedge so **periphery is about 500–2000** (JS ×4 to `20`, corner KS to `20`) and **centre is about 500–4000** (J ×5 from `5`, centre KS ×2 to `40`). The zone plate, SFR patches, and O/P bursts stay the same size.
 
 ```bash
 python3 tools/iso12233/generate.py --aspect 16:9 --region full --scale 4 --4k --preview

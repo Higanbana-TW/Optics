@@ -40,6 +40,7 @@ from generate import (
     translate_shape,
     write_a4_tiles,
     write_dxf,
+    _cluster_freq_mult,
     _cluster_hyperbolic_wedges,
     _principal_axis,
 )
@@ -345,7 +346,7 @@ class DxfOutputTests(unittest.TestCase):
             self.assertGreater(solids, 50)
         self.assertGreater(GLUE_OVERLAP_MM, 5.0)
 
-    def test_4k_halves_wedge_pitch_not_length(self) -> None:
+    def test_4k_pitch_by_region_not_global_double(self) -> None:
         original = load_svg(DEFAULT_SVG)
         uhd = layout_4k(original)
         orig_wedge = {
@@ -353,15 +354,31 @@ class DxfOutputTests(unittest.TestCase):
             for s in original
             if s.kind == "text" and s.text.isdigit() and s.group.startswith(("J1", "JS", "KS"))
         }
-        new_wedge = {
+        new_j = {
             s.text
             for s in uhd
-            if s.kind == "text" and s.text.isdigit() and s.group.startswith(("J1", "JS", "KS"))
+            if s.kind == "text" and s.text.isdigit() and s.group.startswith("J1")
+        }
+        new_js = {
+            s.text
+            for s in uhd
+            if s.kind == "text" and s.text.isdigit() and s.group.startswith("JS")
+        }
+        new_ks = {
+            s.text
+            for s in uhd
+            if s.kind == "text" and s.text.isdigit() and s.group.startswith("KS")
         }
         self.assertIn("20", orig_wedge)
         self.assertNotIn("40", orig_wedge)
-        self.assertIn("40", new_wedge)
-        self.assertNotIn("1", new_wedge)
+        # Centre: J 100-600 → 500-3000, KS 600-2000 → 1200-4000.
+        self.assertEqual(new_j, {"5", "10", "15", "20", "25", "30"})
+        self.assertIn("40", new_ks)
+        self.assertIn("12", new_ks)
+        # Periphery: JS 200-500 → 800-2000, corner KS to 2000.
+        self.assertEqual(new_js, {"8", "12", "16", "20"})
+        self.assertIn("20", new_ks)
+        self.assertNotIn("1", new_j | new_js | new_ks)
         other = {
             s.text
             for s in uhd
@@ -413,6 +430,7 @@ class DxfOutputTests(unittest.TestCase):
                         max(across) - min(across),
                         (cx, cy),
                         len(cluster),
+                        _cluster_freq_mult(cluster),
                     )
                 )
             return rows
@@ -422,10 +440,10 @@ class DxfOutputTests(unittest.TestCase):
         self.assertGreaterEqual(len(m0), 20)
         self.assertEqual(len(m0), len(m1))
         used = set()
-        for long0, bun0, c0, n0 in m0:
+        for long0, bun0, c0, n0, mult0 in m0:
             best_i = None
             best_d = 1e9
-            for i, (long1, bun1, c1, n1) in enumerate(m1):
+            for i, (long1, bun1, c1, n1, _mult1) in enumerate(m1):
                 if i in used:
                     continue
                 dist = math.hypot(c0[0] - c1[0], c0[1] - c1[1])
@@ -434,10 +452,10 @@ class DxfOutputTests(unittest.TestCase):
             self.assertIsNotNone(best_i)
             self.assertLess(best_d, 8.0)
             used.add(best_i)
-            long1, bun1, _c1, n1 = m1[best_i]
+            long1, bun1, _c1, n1, _mult1 = m1[best_i]
             self.assertEqual(n0, n1)
             self.assertAlmostEqual(long1, long0, delta=4.0)
-            self.assertAlmostEqual(bun1 * 2.0, bun0, delta=3.0)
+            self.assertAlmostEqual(bun1 * mult0, bun0, delta=4.0)
 
         clusters0: dict[str, list] = defaultdict(list)
         clusters1: dict[str, list] = defaultdict(list)

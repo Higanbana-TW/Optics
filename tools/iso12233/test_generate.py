@@ -13,6 +13,8 @@ import ezdxf
 from ezdxf import bbox
 
 from generate import (
+    A4_H_MM,
+    A4_W_MM,
     ACTIVE,
     ACTIVE_H,
     ACTIVE_W,
@@ -24,6 +26,7 @@ from generate import (
     DEFAULT_SVG,
     EIAJ_FIELD_NX,
     EIAJ_FIELD_NY,
+    GLUE_OVERLAP_MM,
     HALF_DIAG_16X9,
     bbox_center,
     clip_polyline,
@@ -34,6 +37,7 @@ from generate import (
     parse_path,
     plus_center,
     translate_shape,
+    write_a4_tiles,
     write_dxf,
 )
 
@@ -247,7 +251,7 @@ class DxfOutputTests(unittest.TestCase):
         cls.tmp.cleanup()
 
     def _write(self, aspect: str, region: str, scale: float = 4.0) -> Path:
-        dest = self.out / f"{aspect.replace(':', 'x')}_{region}.dxf"
+        dest = self.out / f"{aspect.replace(':', 'x')}_{region}_{scale:.0f}x.dxf"
         return write_dxf(self.shapes, dest, aspect=aspect, region=region, scale=scale)
 
     def test_16x9_4x_full_size(self) -> None:
@@ -306,6 +310,37 @@ class DxfOutputTests(unittest.TestCase):
         self.assertIn("SFR", sfr_layers)
         self.assertIn("CENTER", center_layers)
         self.assertNotIn("PERIPHERY", sfr_layers)
+
+    def test_16x9_2x_is_half_of_4x(self) -> None:
+        path4 = self._write("16:9", "full", scale=4.0)
+        path2 = self._write("16:9", "full", scale=2.0)
+        ext4 = bbox.extents(ezdxf.readfile(path4).modelspace())
+        ext2 = bbox.extents(ezdxf.readfile(path2).modelspace())
+        w4 = ext4.extmax.x - ext4.extmin.x
+        h4 = ext4.extmax.y - ext4.extmin.y
+        w2 = ext2.extmax.x - ext2.extmin.x
+        h2 = ext2.extmax.y - ext2.extmin.y
+        self.assertAlmostEqual(w2 * 2.0, w4, delta=3.0)
+        self.assertAlmostEqual(h2 * 2.0, h4, delta=3.0)
+
+    def test_a4_tiles_are_two_landscape_sheets_with_glue(self) -> None:
+        tiles = write_a4_tiles(self.shapes, self.out, scale=2.0)
+        self.assertEqual(len(tiles), 2)
+        self.assertTrue(tiles[0].name.endswith("a4_1of2.dxf"))
+        self.assertTrue(tiles[1].name.endswith("a4_2of2.dxf"))
+        for path in tiles:
+            doc = ezdxf.readfile(path)
+            ext = bbox.extents(doc.modelspace())
+            width = ext.extmax.x - ext.extmin.x
+            height = ext.extmax.y - ext.extmin.y
+            self.assertAlmostEqual(width, A4_W_MM, delta=2.0)
+            self.assertAlmostEqual(height, A4_H_MM, delta=2.0)
+            layers = {e.dxf.layer for e in doc.modelspace()}
+            self.assertIn("GLUE", layers)
+            self.assertIn("CENTER", layers)
+            solids = sum(1 for e in doc.modelspace() if e.dxftype() == "SOLID")
+            self.assertGreater(solids, 50)
+        self.assertGreater(GLUE_OVERLAP_MM, 5.0)
 
 
 if __name__ == "__main__":

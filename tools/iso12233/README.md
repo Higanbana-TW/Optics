@@ -47,6 +47,24 @@ python3 tools/iso12233/generate.py --scale 4 --preview
 
 `--scale 4` is 4× of the 200 mm 1X chart. Use `--aspect 16:9|4:3` and `--region full|center|periphery|sfr` to build a subset.
 
+### 16:9 at 2×, split onto two A4 sheets
+
+4× 16:9 is the large plate (`iso12233_16x9_4x_full.dxf`, 800 mm picture height). Compress 2×:
+
+```bash
+python3 tools/iso12233/generate.py --aspect 16:9 --region full --scale 2 --a4-tiles --preview
+```
+
+That writes:
+
+- `iso12233_16x9_2x_full.dxf` — 2× plate (400 mm picture height)
+- `iso12233_16x9_2x_a4_1of2.dxf` — A4 landscape **left**
+- `iso12233_16x9_2x_a4_2of2.dxf` — A4 landscape **right**
+
+A 2× plate at 100% is much larger than two A4s, so the A4 files scale the 2× chart so its **top and bottom are flush with the 210 mm A4 height**, then split left/right. A **12 mm overlap** of real chart is duplicated on both sheets (layer `GLUE`): dashed join line, registration crosses, and 20 mm ticks. Print **actual size / 100%**, landscape, no “fit to page”. Glue the 12 mm strip on page 1 **under** page 2, matching the crosses.
+
+Labeled LW/PH is for the 2× 400 mm picture height. On the A4 print the active height is smaller; the `NOTES` line gives the multiply factor if that sheet fills the camera frame.
+
 ## Tests
 
 ```bash

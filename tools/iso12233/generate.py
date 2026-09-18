@@ -773,7 +773,13 @@ LAYER_DEFS = [
     ("SFR", 7, "Slanted-edge SFR bars, H-bars, corner squares"),
     ("LABELS", 7, "Frequency and aspect-ratio labels"),
     ("NOTES", 7, "Print notes and picture-height callouts"),
+    ("GLUE", 1, "A4 tile glue strip, dashed join line, registration"),
 ]
+
+# Home-print A4 poster: landscape sheet and duplicated overlap for gluing.
+A4_W_MM = 297.0
+A4_H_MM = 210.0
+GLUE_OVERLAP_MM = 12.0
 
 
 def layer_for(shape: Shape, prefer: str | None = None) -> str:
@@ -927,7 +933,11 @@ def add_frame_strips(
     inner: tuple[float, float, float, float],
     scale: float,
     layer: str = "FRAME",
+    *,
+    to_mm=None,
+    clip: tuple[float, float, float, float] | None = None,
 ) -> None:
+    conv = to_mm or (lambda x, y: svg_to_mm(x, y, scale))
     ox0, oy0, ox1, oy1 = outer
     ix0, iy0, ix1, iy1 = inner
     strips = (
@@ -937,16 +947,10 @@ def add_frame_strips(
         (ix1, iy0, ox1, iy1),
     )
     for a, b, c, d in strips:
-        add_filled_polygon(
-            msp,
-            [
-                svg_to_mm(a, b, scale),
-                svg_to_mm(c, b, scale),
-                svg_to_mm(c, d, scale),
-                svg_to_mm(a, d, scale),
-            ],
-            layer,
-        )
+        poly = [(a, b), (c, b), (c, d), (a, d), (a, b)]
+        pieces = clip_polyline(poly, clip, closed=True) if clip else [poly]
+        for piece in pieces:
+            add_filled_polygon(msp, [conv(x, y) for x, y in piece], layer)
 
 
 def draw_shape(
@@ -955,15 +959,19 @@ def draw_shape(
     scale: float,
     layer: str,
     clip: tuple[float, float, float, float] | None,
+    *,
+    to_mm=None,
+    size_scale: float = 1.0,
 ) -> None:
+    conv = to_mm or (lambda x, y: svg_to_mm(x, y, scale))
     if shape.group in {"Black_border", "White_background"}:
         return
     if shape.kind == "text":
         x, y = shape.insert
         if clip and not (clip[0] <= x <= clip[2] and clip[1] <= y <= clip[3]):
             return
-        px, py = svg_to_mm(x, y, scale)
-        height = max(shape.font_size * scale / PT_PER_MM, 1.6)
+        px, py = conv(x, y)
+        height = max(shape.font_size * scale / PT_PER_MM * size_scale, 1.2)
         msp.add_text(
             shape.text,
             height=height,
@@ -975,13 +983,18 @@ def draw_shape(
         closed = shape.closed or (len(poly) >= 4 and poly[0] == poly[-1])
         pieces = clip_polyline(poly, clip, closed=closed) if clip else [list(poly)]
         for piece in pieces:
-            pts = poly_to_mm(piece, scale)
+            pts = [conv(x, y) for x, y in piece]
             if is_white(shape.fill):
                 continue
             if shape.fill is not None and closed:
                 add_filled_polygon(msp, pts, layer)
             elif shape.stroke is not None:
-                add_stroke(msp, pts, shape.stroke_width * scale / PT_PER_MM, layer)
+                add_stroke(
+                    msp,
+                    pts,
+                    shape.stroke_width * scale / PT_PER_MM * size_scale,
+                    layer,
+                )
             elif shape.fill is not None:
                 add_filled_polygon(msp, pts, layer)
 
@@ -1227,6 +1240,167 @@ def write_dxf(
     return dest
 
 
+def _a4_fit_scale(iso_scale: float) -> float:
+    """Scale factor that makes the 16:9 plate height fill A4 landscape (210 mm)."""
+    plate_h_mm = BODY_H * iso_scale / PT_PER_MM
+    return A4_H_MM / plate_h_mm
+
+
+def _a4_plate_width_mm(iso_scale: float, fit: float) -> float:
+    return SVG_W * iso_scale / PT_PER_MM * fit
+
+
+def _a4_to_mm(iso_scale: float, fit: float, page_x0: float, src_fitted_x0: float):
+    """Map SVG → A4 page mm. Plate is flush with the 210 mm sheet height."""
+    unit = iso_scale / PT_PER_MM
+    y_off = (SVG_H - BODY_H) * unit
+
+    def conv(x: float, y: float) -> tuple[float, float]:
+        mx, my = svg_to_mm(x, y, iso_scale)
+        return mx * fit - src_fitted_x0 + page_x0, (my - y_off) * fit
+
+    return conv
+
+
+def _add_reg_cross(msp, x: float, y: float, arm: float = 4.0) -> None:
+    attribs = {"layer": "GLUE", "color": 1, "lineweight": 25}
+    msp.add_line((x - arm, y), (x + arm, y), dxfattribs=attribs)
+    msp.add_line((x, y - arm), (x, y + arm), dxfattribs=attribs)
+
+
+def add_a4_glue_overlay(
+    msp,
+    *,
+    page: int,
+    content_w: float,
+    page_x0: float,
+    overlap: float,
+    iso_scale: float,
+    fit: float,
+) -> None:
+    """Dashed join line, registration ticks, and margin instructions."""
+    y0, y1 = 0.0, A4_H_MM
+    if page == 1:
+        glue_x = page_x0 + content_w - overlap
+        margin_x = page_x0 + content_w + 8.0
+        align = TextEntityAlignment.LEFT
+        side = "LEFT  1/2"
+        glue_note = "GLUE this 12 mm strip UNDER page 2"
+    else:
+        glue_x = page_x0 + overlap
+        margin_x = max(8.0, page_x0 - 8.0)
+        align = TextEntityAlignment.RIGHT
+        side = "RIGHT  2/2"
+        glue_note = "ALIGN this 12 mm strip OVER page 1"
+
+    glue = {"layer": "GLUE", "color": 1, "lineweight": 25}
+    y = y0
+    while y < y1:
+        yb = min(y + 4.0, y1)
+        msp.add_line((glue_x, y), (glue_x, yb), dxfattribs=glue)
+        y = yb + 3.0
+    # Outer crop rectangle of the A4 sheet.
+    msp.add_lwpolyline(
+        [(0.0, 0.0), (A4_W_MM, 0.0), (A4_W_MM, A4_H_MM), (0.0, A4_H_MM), (0.0, 0.0)],
+        dxfattribs={"layer": "GLUE", "color": 1, "lineweight": 18},
+    )
+    _add_reg_cross(msp, glue_x, y0 + 8.0)
+    _add_reg_cross(msp, glue_x, y1 - 8.0)
+    tick = 0.0
+    while tick <= A4_H_MM + 0.1:
+        msp.add_line(
+            (glue_x - 2.0, tick),
+            (glue_x + 2.0, tick),
+            dxfattribs={"layer": "GLUE", "color": 1, "lineweight": 18},
+        )
+        tick += 20.0
+
+    ph = BASE_PH_MM * iso_scale
+    printed_ph = ph * fit
+    notes = [
+        f"ISO 12233 16:9  {iso_scale:.0f}X  A4 {side}",
+        glue_note,
+        f"Overlap {overlap:.0f} mm   match crosses + ticks",
+        f"Active PH on this print = {printed_ph:.0f} mm",
+        f"If this sheet fills the camera frame, multiply LW/PH by {ph / printed_ph:.2f}",
+        "Print 100% / actual size, landscape, no 'fit to page'",
+    ]
+    height = 2.6
+    y = A4_H_MM - 14.0
+    for line in notes:
+        text = msp.add_text(line, height=height, dxfattribs={"layer": "NOTES", "color": 1})
+        text.set_placement((margin_x, y), align=align)
+        y -= 5.5
+
+
+def write_a4_tiles(
+    shapes: Sequence[Shape],
+    out_dir: Path,
+    *,
+    scale: float,
+) -> list[Path]:
+    """Split a 16:9 plate across two A4 landscape sheets with a glue overlap.
+
+    The 16:9 chart is scaled so its plate height is flush with A4 (210 mm),
+    then cut left/right. The 12 mm overlap is duplicated chart, not a blank
+    tab, so the pattern can be aligned after printing.
+    """
+    fit = _a4_fit_scale(scale)
+    fitted_w = _a4_plate_width_mm(scale, fit)
+    overlap = GLUE_OVERLAP_MM
+    content_w = (fitted_w + overlap) / 2.0
+    # SVG x of the split (page 1 right edge / page 2 left edge of unique content).
+    k = scale / PT_PER_MM * fit
+    page_specs = (
+        # page, page_x0, src_fitted_x0, svg_x0, svg_x1
+        (1, 0.0, 0.0, 0.0, content_w / k),
+        (2, A4_W_MM - content_w, fitted_w - content_w, (fitted_w - content_w) / k, SVG_W),
+    )
+    written: list[Path] = []
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for page, page_x0, src_fitted_x0, svg_x0, svg_x1 in page_specs:
+        clip = (svg_x0, 0.0, svg_x1, BODY_H)
+        to_mm = _a4_to_mm(scale, fit, page_x0, src_fitted_x0)
+        doc = new_doc()
+        msp = doc.modelspace()
+        add_frame_strips(
+            msp,
+            (0.0, 0.0, SVG_W, BODY_H),
+            ACTIVE,
+            scale,
+            to_mm=to_mm,
+            clip=clip,
+        )
+        for shape in shapes:
+            draw_shape(
+                msp,
+                shape,
+                scale,
+                layer_for(shape),
+                clip,
+                to_mm=to_mm,
+                size_scale=fit,
+            )
+        add_a4_glue_overlay(
+            msp,
+            page=page,
+            content_w=content_w,
+            page_x0=page_x0,
+            overlap=overlap,
+            iso_scale=scale,
+            fit=fit,
+        )
+        dest = out_dir / f"iso12233_16x9_{scale:.0f}x_a4_{page}of2.dxf"
+        extmin = (0.0, 0.0, 0.0)
+        extmax = (A4_W_MM, A4_H_MM, 0.0)
+        _fit_active_vport(doc, extmin, extmax)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        doc.saveas(dest)
+        _patch_dxf_extents(dest, extmin, extmax)
+        written.append(dest)
+    return written
+
+
 def _fit_active_vport(doc, extmin, extmax) -> None:
     width = float(extmax[0] - extmin[0]) or 1.0
     height = float(extmax[1] - extmin[1]) or 1.0
@@ -1320,6 +1494,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--aspect", choices=("16:9", "4:3", "all"), default="all")
     parser.add_argument("--region", choices=("full", "center", "periphery", "sfr", "all"), default="all")
     parser.add_argument("--preview", action="store_true", help="Also rasterize PNG previews")
+    parser.add_argument(
+        "--a4-tiles",
+        action="store_true",
+        help="Also write two A4 landscape tiles with a glue overlap (16:9 full).",
+    )
     args = parser.parse_args(argv)
 
     shapes = load_svg(args.svg)
@@ -1332,6 +1511,13 @@ def main(argv: list[str] | None = None) -> int:
             name = f"iso12233_{aspect_slug(aspect)}_{args.scale:.0f}x_{region}.dxf"
             path = write_dxf(shapes, args.out / name, aspect=aspect, region=region, scale=args.scale)
             written.append(path)
+            print(f"wrote {path} ({path.stat().st_size / 1024:.0f} KiB)")
+    if args.a4_tiles:
+        if "16:9" not in aspects:
+            raise SystemExit("--a4-tiles requires 16:9 (the official visual chart)")
+        tiles = write_a4_tiles(shapes, args.out, scale=args.scale)
+        written.extend(tiles)
+        for path in tiles:
             print(f"wrote {path} ({path.stat().st_size / 1024:.0f} KiB)")
     if args.preview:
         preview_dir = args.out / "previews"

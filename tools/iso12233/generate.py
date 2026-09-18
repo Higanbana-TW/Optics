@@ -712,12 +712,20 @@ def relabel_frequency(shape: Shape, mult: float) -> Shape:
     return replace(shape, text=str(value))
 
 
-FREQ_MULT_4K = 2.0  # centre KS high end: 2000 → 4000 LW/PH
-FREQ_MULT_4K_JS = 4.0  # corner JS: 200-500 → 800-2000
-FREQ_MULT_4K_J = 5.0  # centre J: 100-600 → 500-3000
-FREQ_MULT_4K_KS_CORNER = 20.0 / 9.0  # corner KS: 600-900 → 1333-2000
+# Enhanced I3A/ISO 12233 (Edmund 58-941 / Applied Image QA-77 style):
+#   centre 5-line (J) 500-2000, centre 9-line (KS) 1200-4000,
+#   corner 5-line (JS) 600-900, corner 9-line 1200-1800,
+#   square-wave bursts 1200-3000. Not a global ×2 of the 2000 plate.
 _CENTER_WEDGE_LEN = 120.0  # SVG; centre J/KS ~170, corner JS/KS ~85
 _WEDGE_PREFIXES = ("JS", "KS", "J1")
+_KIND_PITCH = {
+    "J": 20.0 / 6.0,  # 600 → 2000
+    "JS": 9.0 / 5.0,  # 500 → 900
+    "JS_DIAG": 18.0 / 5.0,  # 500 → 1800
+    "KS_CENTER": 2.0,  # 2000 → 4000
+    "KS_CORNER": 2.0,  # 900 → 1800
+    "KD": 1.0,  # stay 600-900
+}
 
 
 def _wedge_prefix(group: str) -> str | None:
@@ -892,44 +900,172 @@ def _apply_xy(shape: Shape, xf, k: float = 1.0) -> Shape:
     return replace(shape, polylines=polys, insert=insert, stroke_width=shape.stroke_width * k)
 
 
-def _cluster_freq_mult(cluster: Sequence[Shape]) -> float:
-    """4K 本数 are not a global ×2.
-
-    Periphery (JS + corner KS / KD) covers about 500-2000 LW/PH; the
-    centre pack (J + long KS) covers about 500-4000. Pitch is squeezed
-    by 1/mult so labels stay honest.
-    """
+def _wedge_kind(cluster: Sequence[Shape]) -> str:
+    """Classify one hyperbolic bundle the way the Enhanced I3A plate is labelled."""
     prefix = _wedge_prefix(cluster[0].group) or ""
     axis = _principal_axis(cluster[0])
     length = axis[1] if axis else 0.0
-    if prefix == "JS":
-        return FREQ_MULT_4K_JS
+    u = axis[0] if axis else (1.0, 0.0)
+    diag = abs(u[0] * u[1]) > 0.25
     if prefix == "J1":
-        return FREQ_MULT_4K_J
-    if prefix == "KS" and length < _CENTER_WEDGE_LEN:
-        return FREQ_MULT_4K_KS_CORNER
-    return FREQ_MULT_4K
+        return "J"
+    if prefix == "JS":
+        return "JS_DIAG" if diag else "JS"
+    if prefix == "KS":
+        if diag:
+            return "KD"
+        if length < _CENTER_WEDGE_LEN:
+            return "KS_CORNER"
+        return "KS_CENTER"
+    return "KS_CENTER"
+
+
+def _cluster_freq_mult(cluster: Sequence[Shape]) -> float:
+    """Pitch squeeze vs the 2000 plate so the fine end matches Edmund 58-941."""
+    return _KIND_PITCH[_wedge_kind(cluster)]
+
+
+def _label_4k(value: int, kind: str) -> int:
+    """Map Cornell 100× LW/PH numbers onto the Enhanced I3A printed scale."""
+    if kind == "J":
+        # 1–6 → 6–20
+        return int(round(6.0 + (value - 1) * (20.0 - 6.0) / 5.0))
+    if kind == "JS":
+        return value + 4
+    if kind == "JS_DIAG":
+        # 2–5 → 12–18
+        return int(round(12.0 + (value - 2) * (18.0 - 12.0) / 3.0))
+    if kind in {"KS_CENTER", "KS_CORNER"}:
+        return value * 2
+    if kind == "KD":
+        return value
+    if kind == "OP":
+        return 2 * value + 10
+    return value
+
+
+def _relabel_kind(shape: Shape, kind: str) -> Shape:
+    if shape.kind != "text":
+        return shape
+    if shape.group.startswith("D:") or shape.group in FRAME_GROUPS or shape.group == "credit":
+        return shape
+    raw = shape.text.strip()
+    if not raw.isdigit():
+        return shape
+    return replace(shape, text=str(_label_4k(int(raw), kind)))
+
+
+def _op_axis(shape: Shape) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    """((along_x, along_y), (pitch_x, pitch_y)) for an O/P bar or stroke."""
+    if not shape.bbox:
+        return None
+    bb = shape.bbox
+    w, h = bb[2] - bb[0], bb[3] - bb[1]
+    if h >= w * 2.0 or (h >= w and min(w, h) < 0.3):
+        return (0.0, 1.0), (1.0, 0.0)
+    if w >= h * 2.0 or (w >= h and min(w, h) < 0.3):
+        return (1.0, 0.0), (0.0, 1.0)
+    ax = _bar_axis(bb)
+    if ax == "h":
+        return (1.0, 0.0), (0.0, 1.0)
+    if ax == "v":
+        return (0.0, 1.0), (1.0, 0.0)
+    return None
+
+
+def _is_op_line(shape: Shape) -> bool:
+    """O/P square-wave bars, excluding the long P rails."""
+    if shape.kind != "path" or not shape.bbox:
+        return False
+    if not shape.group.startswith(("O1/O2", "P1/P2")):
+        return False
+    bb = shape.bbox
+    return max(bb[2] - bb[0], bb[3] - bb[1]) <= 80.0
+
+
+def _thin_op_bar(shape: Shape, k: float, shift: float) -> Shape:
+    """Scale thickness about the bar centre and slide along the pitch axis."""
+    axes = _op_axis(shape)
+    if not axes or not shape.bbox:
+        return replace(shape, stroke_width=shape.stroke_width * k)
+    along, pitch_u = axes
+    cx, cy = bbox_center(shape.bbox)
+
+    def xf(x: float, y: float) -> tuple[float, float]:
+        dx, dy = x - cx, y - cy
+        a = dx * along[0] + dy * along[1]
+        p = dx * pitch_u[0] + dy * pitch_u[1]
+        p = p * k + shift
+        return cx + a * along[0] + p * pitch_u[0], cy + a * along[1] + p * pitch_u[1]
+
+    return _apply_xy(shape, xf, k)
+
+
+def _densify_op(bars: Sequence[Shape], factor: int = 3) -> list[Shape]:
+    """Triple O/P spatial frequency; keep each sweep's overall length.
+
+    Each original period becomes `factor` thinner bars, spaced by local
+    pitch / factor, so 1000 LW/PH at the fine end becomes 3000.
+    """
+    groups: dict[tuple[bool, int, int], list[Shape]] = {}
+    for shape in bars:
+        axes = _op_axis(shape)
+        if axes is None:
+            continue
+        _along, pitch_u = axes
+        key = (shape.group.startswith("O1"), round(pitch_u[0]), round(pitch_u[1]))
+        groups.setdefault(key, []).append(shape)
+
+    out: list[Shape] = []
+    grouped_ids = {id(s) for members in groups.values() for s in members}
+    out.extend(s for s in bars if id(s) not in grouped_ids)
+    for members in groups.values():
+        axes0 = _op_axis(members[0])
+        assert axes0 is not None
+        pitch_u = axes0[1]
+
+        def _pos(s: Shape, u: tuple[float, float] = pitch_u) -> float:
+            cx, cy = bbox_center(s.bbox)
+            return cx * u[0] + cy * u[1]
+
+        ordered = sorted(members, key=_pos)
+        positions = [_pos(s) for s in ordered]
+        n = len(ordered)
+        for i, shape in enumerate(ordered):
+            neighbors: list[float] = []
+            if i > 0:
+                neighbors.append(abs(positions[i] - positions[i - 1]))
+            if i + 1 < n:
+                neighbors.append(abs(positions[i + 1] - positions[i]))
+            local = min(neighbors) if neighbors else 2.0
+            k = 1.0 / factor
+            for m in range(factor):
+                offset = (m - (factor - 1) / 2.0) * local / factor
+                out.append(_thin_op_bar(shape, k, offset))
+    return out
 
 
 def layout_4k(shapes: Sequence[Shape], freq_mult: float | None = None) -> list[Shape]:
-    """4K 本数: squeeze line pitch, keep wedge length.
+    """4K 本数 after Edmund Optics 58-941 (2× Enhanced I3A/ISO 12233).
 
-    Not a uniform double. JS corners ×4 (to 2000), corner KS ×20/9
-    (to 2000), centre J ×5 (from 500), centre KS ×2 (to 4000). Frame,
-    SFR, O/P bursts, and the zone plate stay.
+    Wedge length is unchanged; only pitch is squeezed. Labels follow the
+    Enhanced plate: centre J 6–20, centre KS 12–40, corner JS 6–9,
+    corner KS 12–18, left KD 6–9, right JS diagonal 12–18, O/P 12–30.
+    Star sectors, gray SFR, and QA-77 art are not copied.
     """
     clusters = _cluster_hyperbolic_wedges(shapes)
-    bar_xf: dict[int, tuple[object, float, float]] = {}
-    xforms: list[tuple[str, object, list[tuple[float, float, float, float]], float, float]] = []
+    bar_xf: dict[int, tuple[object, str, float]] = {}
+    xforms: list[tuple[str, object, list[tuple[float, float, float, float]], str, float]] = []
     for cluster in clusters:
-        mult = freq_mult if freq_mult is not None else _cluster_freq_mult(cluster)
+        kind = _wedge_kind(cluster)
+        mult = freq_mult if freq_mult is not None else _KIND_PITCH[kind]
         k = 1.0 / mult
         xf = _pitch_map(cluster, k)
         prefix = _wedge_prefix(cluster[0].group) or ""
         boxes = [s.bbox for s in cluster if s.bbox]
-        xforms.append((prefix, xf, boxes, mult, k))
+        xforms.append((prefix, xf, boxes, kind, k))
         for shape in cluster:
-            bar_xf[id(shape)] = (xf, mult, k)
+            bar_xf[id(shape)] = (xf, kind, k)
 
     def nearest_xform(shape: Shape):
         pref = _wedge_prefix(shape.group)
@@ -938,7 +1074,7 @@ def layout_4k(shapes: Sequence[Shape], freq_mult: float | None = None) -> list[S
         cx, cy = bbox_center(shape.bbox)
         best = None
         best_d = 1e9
-        for prefix, xf, boxes, mult, k in xforms:
+        for prefix, xf, boxes, kind, k in xforms:
             if prefix != pref:
                 continue
             for x0, y0, x1, y1 in boxes:
@@ -946,20 +1082,36 @@ def layout_4k(shapes: Sequence[Shape], freq_mult: float | None = None) -> list[S
                 dy = 0.0 if y0 <= cy <= y1 else min(abs(cy - y0), abs(cy - y1))
                 dist = math.hypot(dx, dy)
                 if dist < best_d:
-                    best_d, best = dist, (xf, mult, k)
+                    best_d, best = dist, (xf, kind, k)
         return best if best_d < 40.0 else None
 
     out: list[Shape] = []
+    op_src: list[Shape] = []
     for shape in shapes:
+        if _is_op_line(shape):
+            op_src.append(shape)
+            continue
         info = bar_xf.get(id(shape))
         if info is None and _wedge_prefix(shape.group):
             info = nearest_xform(shape)
         if info is None:
-            out.append(shape)
+            if (
+                shape.kind == "text"
+                and shape.text.strip().isdigit()
+                and shape.group.startswith(("O1/O2", "P1/P2"))
+            ):
+                out.append(_relabel_kind(shape, "OP"))
+            else:
+                out.append(shape)
             continue
-        xf, mult, k = info
-        moved = relabel_frequency(_apply_xy(shape, xf, k), mult)
+        xf, kind, k = info
+        moved = _apply_xy(shape, xf, k)
+        if freq_mult is not None:
+            moved = relabel_frequency(moved, freq_mult)
+        else:
+            moved = _relabel_kind(moved, kind)
         out.append(moved)
+    out.extend(_densify_op(op_src, 3))
     return out
 
 
@@ -1372,7 +1524,7 @@ def add_title_16x9(msp, scale: float, *, uhd: bool = False) -> None:
     if uhd:
         note = (
             f"ISO 12233 16:9  4K  {scale:.0f}X   active {pw:.0f} x {ph:.0f} mm   "
-            f"100x LW/PH   centre 500-4000   periphery 500-2000"
+            f"100x LW/PH   J 6-20  KS 12-40  JS 6-9/12-18  O/P 12-30"
         )
     else:
         note = f"ISO 12233 16:9  {scale:.0f}X   active {pw:.0f} x {ph:.0f} mm   values in 100x LW/PH"
@@ -1598,7 +1750,7 @@ def add_a4_glue_overlay(
         glue_note,
         f"Overlap {overlap:.0f} mm   match crosses + ticks",
         f"Active PH on this print = {printed_ph:.0f} mm"
-        + ("   centre 500-4000  periphery 500-2000" if uhd else ""),
+        + ("   J 6-20  KS 12-40  JS 6-9/12-18  O/P 12-30" if uhd else ""),
         f"If this sheet fills the camera frame, multiply LW/PH by {ph / printed_ph:.2f}",
         "Print 100% / actual size, landscape, no 'fit to page'",
     ]
@@ -1780,7 +1932,7 @@ def main(argv: list[str] | None = None) -> int:
         "--4k",
         dest="uhd",
         action="store_true",
-        help="4K 本数: periphery 500-2000, centre 500-4000. Wedge length unchanged.",
+        help="4K 本数 after Edmund 58-941 Enhanced: J 6-20, KS to 40, JS 6-9, O/P 12-30.",
     )
     parser.add_argument(
         "--a4-tiles",

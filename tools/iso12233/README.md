@@ -47,9 +47,22 @@ python3 tools/iso12233/generate.py --scale 4 --preview
 
 `--scale 4` is 4× of the 200 mm 1X chart. Use `--aspect 16:9|4:3` and `--region full|center|periphery|sfr` to build a subset.
 
-### 4K 本数 (not 1080p)
+### 4K 本数 (Edmund 58-941 / Enhanced I3A style)
 
-The published 2000 visual chart is a **1080p-class** plate: corner JS about **200–500 LW/PH**, centre KS to **2000 LW/PH** (label `20`). A 4K sensor is not a global ×2 of that plate. `--4k` keeps the 16:9 frame, corner positions, and **wedge length**. Line pitch is squeezed per wedge so **periphery is about 500–2000** (JS ×4 to `20`, corner KS to `20`) and **centre is about 500–4000** (J ×5 from `5`, centre KS ×2 to `40`). The zone plate, SFR patches, and O/P bursts stay the same size.
+The published 2000 visual chart is a **1080p-class** plate: corner JS about **200–500 LW/PH**, centre J **100–600**, centre KS to **2000 LW/PH** (label `20`). A 4K sensor is not a global ×2 of that plate and not a uniform J×5 / JS×4 squeeze.
+
+`--4k` follows the **2× Enhanced I3A/ISO 12233** labelling on Edmund Optics stock 58-941 (Applied Image QA-77), using the Cornell 2000 geometry. Wedge **length is unchanged**; only line pitch is squeezed, and O/P square-wave bursts are densified in place (×3, fine end 1000 → 3000). Extra QA-77 art (star sectors, gray SFR, branding) is **not** copied.
+
+| Feature | 2000 labels | 4K labels (100× LW/PH) |
+|---|---|---|
+| Centre 5-line J | 1–6 | **6–20** (600–2000) |
+| Centre 9-line KS | 6–20 | **12–40** (1200–4000) |
+| Corner 5-line JS | 2–5 | **6–9** (600–900) |
+| Corner 9-line KS | 6–9 | **12–18** (1200–1800) |
+| Left KD diagonal | 6–9 | **6–9** (unchanged) |
+| Right JS diagonal | 2–5 | **12–18** (1200–1800) |
+| O/P square-wave | 1–10 | **12–30** (1200–3000) |
+| G pulses | 1–10 | **1–10** |
 
 ```bash
 python3 tools/iso12233/generate.py --aspect 16:9 --region full --scale 4 --4k --preview

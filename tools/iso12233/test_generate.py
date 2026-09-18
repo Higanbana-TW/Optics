@@ -42,6 +42,7 @@ from generate import (
     write_dxf,
     _cluster_freq_mult,
     _cluster_hyperbolic_wedges,
+    _is_op_line,
     _principal_axis,
 )
 
@@ -371,21 +372,31 @@ class DxfOutputTests(unittest.TestCase):
         }
         self.assertIn("20", orig_wedge)
         self.assertNotIn("40", orig_wedge)
-        # Centre: J 100-600 → 500-3000, KS 600-2000 → 1200-4000.
-        self.assertEqual(new_j, {"5", "10", "15", "20", "25", "30"})
+        # Edmund 58-941: centre J 6–20, KS 12–40; corners JS 6–9 plus
+        # diagonal 12–18; KD stays 6–9 (still in the KS group).
+        self.assertEqual(new_j, {"6", "9", "12", "14", "17", "20"})
         self.assertIn("40", new_ks)
         self.assertIn("12", new_ks)
-        # Periphery: JS 200-500 → 800-2000, corner KS to 2000.
-        self.assertEqual(new_js, {"8", "12", "16", "20"})
-        self.assertIn("20", new_ks)
+        self.assertEqual(new_js, {"6", "7", "8", "9", "12", "14", "16", "18"})
+        self.assertTrue({"6", "7", "8", "9"}.issubset(new_ks))
         self.assertNotIn("1", new_j | new_js | new_ks)
-        other = {
+        self.assertNotIn("5", new_j | new_js)
+        g_labels = {
             s.text
             for s in uhd
-            if s.kind == "text" and s.text.isdigit() and s.group.startswith(("G1", "O1", "P1"))
+            if s.kind == "text" and s.text.isdigit() and s.group.startswith(("G1", "G2"))
         }
-        self.assertIn("1", other)
-        self.assertIn("10", other)
+        self.assertIn("1", g_labels)
+        self.assertIn("10", g_labels)
+        new_op = {
+            s.text
+            for s in uhd
+            if s.kind == "text" and s.text.isdigit() and s.group.startswith(("O1", "P1"))
+        }
+        self.assertEqual(new_op, {str(n) for n in range(12, 31, 2)})
+        n_op0 = sum(1 for s in original if _is_op_line(s))
+        n_op1 = sum(1 for s in uhd if _is_op_line(s))
+        self.assertEqual(n_op1, n_op0 * 3)
         crop = {s.text for s in uhd if s.kind == "text"}
         self.assertIn("16:9", crop)
         self.assertIn("4:3", crop)

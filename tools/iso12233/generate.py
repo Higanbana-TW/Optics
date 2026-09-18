@@ -699,16 +699,6 @@ def translate_shape(shape: Shape, dx: float, dy: float) -> Shape:
     return replace(shape, polylines=polys, insert=insert)
 
 
-def scale_shape(shape: Shape, cx: float, cy: float, k: float) -> Shape:
-    """Isotropic scale about (cx, cy). Circles stay round."""
-    polys = [
-        [(cx + k * (x - cx), cy + k * (y - cy)) for x, y in poly]
-        for poly in shape.polylines
-    ]
-    insert = (cx + k * (shape.insert[0] - cx), cy + k * (shape.insert[1] - cy))
-    return replace(shape, polylines=polys, insert=insert, font_size=shape.font_size * k)
-
-
 def relabel_frequency(shape: Shape, mult: float) -> Shape:
     """Double (etc.) ISO LW/PH 本数. Leave 16:9 / 4:3 / 1:1 crop labels alone."""
     if shape.kind != "text":
@@ -723,66 +713,229 @@ def relabel_frequency(shape: Shape, mult: float) -> Shape:
 
 
 FREQ_MULT_4K = 2.0  # 1080p chart max 2000 LW/PH → 4K max 4000
+_WEDGE_PREFIXES = ("JS", "KS", "J1")
 
 
-def _collect_corner_clusters(
-    shapes: Sequence[Shape],
-) -> tuple[dict[str, list[Shape]], dict[str, tuple[float, float]], list[Shape], list[Shape]]:
-    crosses: dict[str, list[Shape]] = {q: [] for q in QUAD_CORNERS_4X3}
-    hbars: list[Shape] = []
-    rest: list[Shape] = []
-    for shape in shapes:
-        if is_corner_cross_shape(shape):
-            cx, cy = bbox_center(shape.bbox)
-            crosses[_quadrant(cx, cy)].append(shape)
-        elif is_side_hbar(shape):
-            hbars.append(shape)
-        else:
-            rest.append(shape)
-    pluses: dict[str, tuple[float, float]] = {}
-    for quad, cluster in crosses.items():
-        if cluster:
-            pluses[quad] = plus_center(cluster)
-    kept: list[Shape] = []
-    for shape in rest:
-        quad = _nearest_plus_quad(shape, pluses) if pluses else None
-        if quad:
-            crosses[quad].append(shape)
-        else:
-            kept.append(shape)
-    return crosses, pluses, hbars, kept
+def _wedge_prefix(group: str) -> str | None:
+    for prefix in _WEDGE_PREFIXES:
+        if group.startswith(prefix):
+            return prefix
+    return None
+
+
+def _bar_axis(bbox: tuple[float, float, float, float]) -> str | None:
+    """'h' = long in X (pitch is vertical); 'v' = long in Y (pitch is horizontal)."""
+    w = bbox[2] - bbox[0]
+    h = bbox[3] - bbox[1]
+    if min(w, h) < 0.3:
+        return None
+    if w >= 2.0 * h:
+        return "h"
+    if h >= 2.0 * w:
+        return "v"
+    return None
+
+
+def _principal_axis(
+    shape: Shape,
+) -> tuple[tuple[float, float], float, float] | None:
+    """((ux, uy) along the bar, length, thickness), or None if not a bar."""
+    if not shape.bbox:
+        return None
+    ax = _bar_axis(shape.bbox)
+    if ax == "h":
+        bb = shape.bbox
+        return (1.0, 0.0), bb[2] - bb[0], bb[3] - bb[1]
+    if ax == "v":
+        bb = shape.bbox
+        return (0.0, 1.0), bb[3] - bb[1], bb[2] - bb[0]
+    pts = [p for poly in shape.polylines for p in poly]
+    if len(pts) < 3:
+        return None
+    mx = sum(p[0] for p in pts) / len(pts)
+    my = sum(p[1] for p in pts) / len(pts)
+    cxx = sum((p[0] - mx) ** 2 for p in pts) / len(pts)
+    cyy = sum((p[1] - my) ** 2 for p in pts) / len(pts)
+    cxy = sum((p[0] - mx) * (p[1] - my) for p in pts) / len(pts)
+    disc = max(0.0, (cxx - cyy) ** 2 + 4.0 * cxy * cxy)
+    lam = 0.5 * (cxx + cyy) + 0.5 * math.sqrt(disc)
+    if abs(cxy) > 1e-12:
+        vx, vy = lam - cyy, cxy
+    elif cxx >= cyy:
+        vx, vy = 1.0, 0.0
+    else:
+        vx, vy = 0.0, 1.0
+    nrm = math.hypot(vx, vy)
+    if nrm < 1e-12:
+        return None
+    vx, vy = vx / nrm, vy / nrm
+    if vx < 0.0 or (abs(vx) < 1e-9 and vy < 0.0):
+        vx, vy = -vx, -vy
+    along = [(p[0] - mx) * vx + (p[1] - my) * vy for p in pts]
+    across = [-(p[0] - mx) * vy + (p[1] - my) * vx for p in pts]
+    length = max(along) - min(along)
+    thick = max(across) - min(across)
+    if length < 40.0 or length < 2.0 * max(thick, 0.5):
+        return None
+    return (vx, vy), length, thick
+
+
+def _is_wedge_bar(shape: Shape) -> bool:
+    """J / JS / KS bars, including stroke outlines and 45° KD / JS diagonals."""
+    if shape.kind != "path" or not shape.bbox or not _wedge_prefix(shape.group):
+        return False
+    if _bar_axis(shape.bbox):
+        return True
+    if shape.fill is None and not shape.closed:
+        return False
+    return _principal_axis(shape) is not None
+
+
+def _proj_span(
+    shape: Shape, u: tuple[float, float], v: tuple[float, float]
+) -> tuple[float, float, float, float]:
+    """Return (along0, along1, transverse_center, along_length)."""
+    pts = [p for poly in shape.polylines for p in poly]
+    along = [p[0] * u[0] + p[1] * u[1] for p in pts]
+    across = [p[0] * v[0] + p[1] * v[1] for p in pts]
+    a0, a1 = min(along), max(along)
+    return a0, a1, (min(across) + max(across)) / 2.0, a1 - a0
+
+
+def _cluster_hyperbolic_wedges(shapes: Sequence[Shape]) -> list[list[Shape]]:
+    """Group the parallel bars that make one J / JS / KS / KD wedge.
+
+    Bars in one wedge share orientation, overlap along their long axis, and
+    sit within one bundle width. Left/right and top/bottom pluses stay separate.
+    """
+    bars = [s for s in shapes if _is_wedge_bar(s)]
+    parent = list(range(len(bars)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(i: int, j: int) -> None:
+        a, b = find(i), find(j)
+        if a != b:
+            parent[a] = b
+
+    axes = [_principal_axis(s) for s in bars]
+    for i, a in enumerate(bars):
+        pa = _wedge_prefix(a.group)
+        aa = axes[i]
+        assert pa and aa
+        ua, alen, _athick = aa
+        va = (-ua[1], ua[0])
+        a0, a1, at, _ = _proj_span(a, ua, va)
+        for j in range(i + 1, len(bars)):
+            b = bars[j]
+            if _wedge_prefix(b.group) != pa:
+                continue
+            bb = axes[j]
+            if not bb:
+                continue
+            ub, blen, _bthick = bb
+            if abs(ua[0] * ub[0] + ua[1] * ub[1]) < 0.85:
+                continue
+            b0, b1, bt, _ = _proj_span(b, ua, va)
+            overlap = max(0.0, min(a1, b1) - max(a0, b0))
+            if overlap < 0.7 * min(alen, blen):
+                continue
+            if abs(at - bt) > 80.0:
+                continue
+            union(i, j)
+
+    grouped: dict[int, list[Shape]] = {}
+    for i, shape in enumerate(bars):
+        grouped.setdefault(find(i), []).append(shape)
+    return list(grouped.values())
+
+
+def _pitch_map(cluster: Sequence[Shape], k: float):
+    """Keep length; scale only the pitch (transverse) axis about the bundle centre."""
+    dirs: list[tuple[tuple[float, float], float]] = []
+    centres: list[tuple[float, float]] = []
+    for shape in cluster:
+        axis = _principal_axis(shape)
+        if axis and shape.bbox:
+            dirs.append((axis[0], axis[1]))
+            centres.append(bbox_center(shape.bbox))
+    if not dirs or not centres:
+        return lambda x, y: (x, y)
+    ux = sum(u[0] * length for u, length in dirs)
+    uy = sum(u[1] * length for u, length in dirs)
+    nrm = math.hypot(ux, uy) or 1.0
+    ux, uy = ux / nrm, uy / nrm
+    vx, vy = -uy, ux
+    cx = sum(p[0] for p in centres) / len(centres)
+    cy = sum(p[1] for p in centres) / len(centres)
+
+    def xf(x: float, y: float) -> tuple[float, float]:
+        dx, dy = x - cx, y - cy
+        along = dx * ux + dy * uy
+        across = dx * vx + dy * vy
+        return cx + along * ux + k * across * vx, cy + along * uy + k * across * vy
+
+    return xf
+
+
+def _apply_xy(shape: Shape, xf) -> Shape:
+    polys = [[xf(x, y) for x, y in poly] for poly in shape.polylines]
+    insert = xf(*shape.insert)
+    return replace(shape, polylines=polys, insert=insert)
 
 
 def layout_4k(shapes: Sequence[Shape], freq_mult: float = FREQ_MULT_4K) -> list[Shape]:
-    """4K 本数: twice the spatial frequency of the 1080p ISO 12233:2000 plate.
+    """4K 本数: half the line pitch, same wedge length.
 
-    Wedges shrink by 1/2 (still round, not squeezed). Numeric LW/PH labels
-    double (centre 20 → 40 = 4000 LW/PH). Frame, crop arrows, and 16:9
-    marks stay. Corner pluses stay at the same field points.
+    Hyperbolic J / JS / KS / KD wedges stay as long as on the 1080p plate;
+    only the bundle width (線寬 / 線距) is halved, which doubles LW/PH.
+    Labels stay along the wedge and the numbers double (centre 20 → 40 =
+    4000). Frame, crop marks, SFR squares, O/P bursts, and the zone plate
+    are not shrunk.
     """
     k = 1.0 / freq_mult
-    crosses, pluses, hbars, rest = _collect_corner_clusters(shapes)
-    out: list[Shape] = []
-    for shape in rest:
-        if "frame" in shape.regions:
-            out.append(shape)
-            continue
-        scaled = scale_shape(shape, CENTER_X, CENTER_Y, k)
-        out.append(relabel_frequency(scaled, freq_mult))
-    for quad, cluster in crosses.items():
-        if quad not in pluses:
-            continue
-        cx, cy = pluses[quad]
+    clusters = _cluster_hyperbolic_wedges(shapes)
+    bar_xf: dict[int, object] = {}
+    xforms: list[tuple[str, object, list[tuple[float, float, float, float]]]] = []
+    for cluster in clusters:
+        xf = _pitch_map(cluster, k)
+        prefix = _wedge_prefix(cluster[0].group) or ""
+        boxes = [s.bbox for s in cluster if s.bbox]
+        xforms.append((prefix, xf, boxes))
         for shape in cluster:
-            scaled = scale_shape(shape, cx, cy, k)
-            out.append(relabel_frequency(scaled, freq_mult))
-    for shape in hbars:
-        if not shape.bbox:
-            out.append(relabel_frequency(shape, freq_mult))
-            continue
+            bar_xf[id(shape)] = xf
+
+    def nearest_xf(shape: Shape):
+        pref = _wedge_prefix(shape.group)
+        if not pref or not shape.bbox:
+            return None
         cx, cy = bbox_center(shape.bbox)
-        scaled = scale_shape(shape, cx, cy, k)
-        out.append(relabel_frequency(scaled, freq_mult))
+        best = None
+        best_d = 1e9
+        for prefix, xf, boxes in xforms:
+            if prefix != pref:
+                continue
+            for x0, y0, x1, y1 in boxes:
+                dx = 0.0 if x0 <= cx <= x1 else min(abs(cx - x0), abs(cx - x1))
+                dy = 0.0 if y0 <= cy <= y1 else min(abs(cy - y0), abs(cy - y1))
+                dist = math.hypot(dx, dy)
+                if dist < best_d:
+                    best_d, best = dist, xf
+        return best if best_d < 40.0 else None
+
+    out: list[Shape] = []
+    for shape in shapes:
+        xf = bar_xf.get(id(shape))
+        if xf is None and _wedge_prefix(shape.group):
+            xf = nearest_xf(shape)
+        moved = _apply_xy(shape, xf) if xf else shape
+        if xf or (shape.kind == "text" and _wedge_prefix(shape.group)):
+            moved = relabel_frequency(moved, freq_mult)
+        out.append(moved)
     return out
 
 
@@ -1603,7 +1756,7 @@ def main(argv: list[str] | None = None) -> int:
         "--4k",
         dest="uhd",
         action="store_true",
-        help="4K 本数: double LW/PH (centre 2000→4000). Frame size unchanged.",
+        help="4K 本数: half J/JS/KS line pitch, same wedge length (centre 2000→4000).",
     )
     parser.add_argument(
         "--a4-tiles",

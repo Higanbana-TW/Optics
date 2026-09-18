@@ -40,6 +40,8 @@ from generate import (
     translate_shape,
     write_a4_tiles,
     write_dxf,
+    _cluster_hyperbolic_wedges,
+    _principal_axis,
 )
 
 
@@ -343,15 +345,30 @@ class DxfOutputTests(unittest.TestCase):
             self.assertGreater(solids, 50)
         self.assertGreater(GLUE_OVERLAP_MM, 5.0)
 
-    def test_4k_doubles_ben_shu_and_keeps_circles_round(self) -> None:
+    def test_4k_halves_wedge_pitch_not_length(self) -> None:
         original = load_svg(DEFAULT_SVG)
         uhd = layout_4k(original)
-        orig_nums = {s.text for s in original if s.kind == "text" and s.text.isdigit()}
-        new_nums = {s.text for s in uhd if s.kind == "text" and s.text.isdigit()}
-        self.assertIn("20", orig_nums)
-        self.assertNotIn("40", orig_nums)
-        self.assertIn("40", new_nums)
-        self.assertNotIn("1", new_nums)
+        orig_wedge = {
+            s.text
+            for s in original
+            if s.kind == "text" and s.text.isdigit() and s.group.startswith(("J1", "JS", "KS"))
+        }
+        new_wedge = {
+            s.text
+            for s in uhd
+            if s.kind == "text" and s.text.isdigit() and s.group.startswith(("J1", "JS", "KS"))
+        }
+        self.assertIn("20", orig_wedge)
+        self.assertNotIn("40", orig_wedge)
+        self.assertIn("40", new_wedge)
+        self.assertNotIn("1", new_wedge)
+        other = {
+            s.text
+            for s in uhd
+            if s.kind == "text" and s.text.isdigit() and s.group.startswith(("G1", "O1", "P1"))
+        }
+        self.assertIn("1", other)
+        self.assertIn("10", other)
         crop = {s.text for s in uhd if s.kind == "text"}
         self.assertIn("16:9", crop)
         self.assertIn("4:3", crop)
@@ -375,7 +392,52 @@ class DxfOutputTests(unittest.TestCase):
         h1 = zp1[0].bbox[3] - zp1[0].bbox[1]
         self.assertAlmostEqual(w0 / h0, 1.0, places=2)
         self.assertAlmostEqual(w1 / h1, 1.0, places=2)
-        self.assertAlmostEqual(w1 * 2.0, w0, delta=2.0)
+        self.assertAlmostEqual(w1, w0, delta=2.0)
+        self.assertAlmostEqual(h1, h0, delta=2.0)
+
+        def cluster_metrics(shapes):
+            rows = []
+            for cluster in _cluster_hyperbolic_wedges(shapes):
+                axis = _principal_axis(cluster[0])
+                self.assertIsNotNone(axis)
+                u, _length, _thick = axis
+                v = (-u[1], u[0])
+                pts = [p for s in cluster for poly in s.polylines for p in poly]
+                along = [p[0] * u[0] + p[1] * u[1] for p in pts]
+                across = [p[0] * v[0] + p[1] * v[1] for p in pts]
+                cx = sum(bbox_center(s.bbox)[0] for s in cluster) / len(cluster)
+                cy = sum(bbox_center(s.bbox)[1] for s in cluster) / len(cluster)
+                rows.append(
+                    (
+                        max(along) - min(along),
+                        max(across) - min(across),
+                        (cx, cy),
+                        len(cluster),
+                    )
+                )
+            return rows
+
+        m0 = cluster_metrics(original)
+        m1 = cluster_metrics(uhd)
+        self.assertGreaterEqual(len(m0), 20)
+        self.assertEqual(len(m0), len(m1))
+        used = set()
+        for long0, bun0, c0, n0 in m0:
+            best_i = None
+            best_d = 1e9
+            for i, (long1, bun1, c1, n1) in enumerate(m1):
+                if i in used:
+                    continue
+                dist = math.hypot(c0[0] - c1[0], c0[1] - c1[1])
+                if dist < best_d:
+                    best_d, best_i = dist, i
+            self.assertIsNotNone(best_i)
+            self.assertLess(best_d, 8.0)
+            used.add(best_i)
+            long1, bun1, _c1, n1 = m1[best_i]
+            self.assertEqual(n0, n1)
+            self.assertAlmostEqual(long1, long0, delta=4.0)
+            self.assertAlmostEqual(bun1 * 2.0, bun0, delta=3.0)
 
         clusters0: dict[str, list] = defaultdict(list)
         clusters1: dict[str, list] = defaultdict(list)

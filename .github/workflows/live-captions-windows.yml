@@ -65,12 +65,22 @@ jobs:
         shell: pwsh
         run: |
           $PSNativeCommandUseErrorActionPreference = $false
-          if (Test-Path LiveCaptions-windows.zip) { Remove-Item LiveCaptions-windows.zip }
-          tar -a -c -f LiveCaptions-windows.zip LiveCaptions
-          if (-not (Test-Path LiveCaptions-windows.zip)) { Write-Error "zip was not written"; exit 1 }
-          $size = (Get-Item LiveCaptions-windows.zip).Length
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $folder = Join-Path (Get-Location) "LiveCaptions"
+          $zip = Join-Path (Get-Location) "LiveCaptions-windows.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          $dirBytes = (Get-ChildItem -Recurse -File $folder | Measure-Object -Property Length -Sum).Sum
+          Write-Host "DIR_BYTES=$dirBytes"
+          if (-not (Test-Path (Join-Path $folder "LiveCaptions.exe"))) { Write-Error "missing exe"; exit 1 }
+          [System.IO.Compression.ZipFile]::CreateFromDirectory(
+            $folder,
+            $zip,
+            [System.IO.Compression.CompressionLevel]::Optimal,
+            $true)
+          $size = (Get-Item $zip).Length
           Write-Host "ZIP_BYTES=$size"
-          "ZIP_BYTES=$size" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "DIR_BYTES=$dirBytes ZIP_BYTES=$size" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          exit 0
 
       - uses: actions/upload-artifact@v4
         with:

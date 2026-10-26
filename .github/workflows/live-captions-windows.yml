@@ -64,12 +64,13 @@ jobs:
         working-directory: live-captions\dist
         shell: pwsh
         run: |
+          $PSNativeCommandUseErrorActionPreference = $false
           if (Test-Path LiveCaptions-windows.zip) { Remove-Item LiveCaptions-windows.zip }
           tar -a -c -f LiveCaptions-windows.zip LiveCaptions
+          if (-not (Test-Path LiveCaptions-windows.zip)) { Write-Error "zip was not written"; exit 1 }
           $size = (Get-Item LiveCaptions-windows.zip).Length
           Write-Host "ZIP_BYTES=$size"
           "ZIP_BYTES=$size" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-          tar -tf LiveCaptions-windows.zip | Select-String -Pattern "LiveCaptions.exe" | Select-Object -First 3
 
       - uses: actions/upload-artifact@v4
         with:
@@ -77,6 +78,31 @@ jobs:
           path: live-captions/dist/LiveCaptions-windows.zip
           if-no-files-found: error
           compression-level: 0
+
+      - name: Publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $ErrorActionPreference = "Continue"
+          $zip = "live-captions/dist/LiveCaptions-windows.zip"
+          $tag = "live-captions-windows-0.1.0"
+          gh release view $tag --repo ${{ github.repository }}
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $zip --repo ${{ github.repository }} --clobber
+          } else {
+            gh release create $tag $zip `
+              --repo ${{ github.repository }} `
+              --target ${{ github.sha }} `
+              --prerelease `
+              --title "Live Captions for Windows (preview)" `
+              --notes-file live-captions/packaging/RELEASE_NOTES.md
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $size = (Get-Item $zip).Length
+          Write-Host "RELEASE_ZIP_BYTES=$size"
+          "Download: https://github.com/${{ github.repository }}/releases/download/$tag/LiveCaptions-windows.zip ($size bytes)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
 
       - name: Smoke-test the frozen exe
         working-directory: live-captions\dist\LiveCaptions
@@ -112,28 +138,3 @@ jobs:
           }
           Stop-Process -Id $gui.Id -Force
           Get-Process -Name LiveCaptions -ErrorAction SilentlyContinue | Stop-Process -Force
-
-      - name: Publish prerelease
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: pwsh
-        run: |
-          $PSNativeCommandUseErrorActionPreference = $false
-          $ErrorActionPreference = "Continue"
-          $zip = "live-captions/dist/LiveCaptions-windows.zip"
-          $tag = "live-captions-windows-0.1.0"
-          gh release view $tag --repo ${{ github.repository }}
-          if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag $zip --repo ${{ github.repository }} --clobber
-          } else {
-            gh release create $tag $zip `
-              --repo ${{ github.repository }} `
-              --target ${{ github.sha }} `
-              --prerelease `
-              --title "Live Captions for Windows (preview)" `
-              --notes-file live-captions/packaging/RELEASE_NOTES.md
-          }
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $size = (Get-Item $zip).Length
-          Write-Host "RELEASE_ZIP_BYTES=$size"
-          "Download: https://github.com/${{ github.repository }}/releases/download/$tag/LiveCaptions-windows.zip ($size bytes)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append

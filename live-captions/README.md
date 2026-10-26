@@ -6,10 +6,25 @@
 
 Optic Player（這個存放庫原本的網頁播放器）維持不變。字幕程式是獨立的 `live-captions/` 目錄，有自己的相依套件。
 
+## 不用安裝 Python
+
+下載 Windows 預覽壓縮檔（GitHub Actions `windows-latest` 上的 PyInstaller onedir，不是在 Linux 上做出來的 exe）：
+
+https://github.com/Higanbana-TW/Optics/releases/download/live-captions-windows-0.1.0/LiveCaptions-windows.zip
+
+1. 解壓縮
+2. 打開 `LiveCaptions` 資料夾
+3. 雙擊 `LiveCaptions.exe`
+
+字幕列會先出現。第一次需要網路，字幕列會顯示正在下載語音模型（約 139 MB）和翻譯模型（約 68 MB）。這兩個模型沒有包在壓縮檔裡。不需要安裝 Python，也不用留著命令視窗。
+
+結束請用系統匣的「字」圖示，或按 `Ctrl+Alt+Q`。拖曳可移動。`Ctrl+Alt+C` 點擊穿透，`Ctrl+Alt+H` 隱藏，`Ctrl+Alt+A` 切換系統播放與麥克風。
+
 ## 環境
 
 - Windows 10 或 Windows 11，64 位元
-- Python 3.11 或 3.12，64 位元（這次在 Linux 上用 Python 3.12.3 跑測試）
+- 直接雙擊 `LiveCaptions.exe` 時不需要 Python
+- 若要從原始碼執行：Python 3.11 或 3.12，64 位元（這次在 Linux 上用 Python 3.12.3 跑測試）
 - 會議聲音要從喇叭或耳機播出。系統靜音時沒有字幕
 
 ## 安裝與執行

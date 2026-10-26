@@ -6,6 +6,13 @@ from pathlib import Path
 
 
 def app_dir() -> Path:
+    """Folder that holds the program.
+
+    A frozen LiveCaptions.exe keeps an optional .env beside the executable.
+    Source checkouts use the live-captions directory.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parents[1]
 
 

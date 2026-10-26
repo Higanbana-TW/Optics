@@ -1,0 +1,139 @@
+name: Live Captions Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - cursor/windows-live-captions-1d8e
+    paths:
+      - live-captions/live_captions/**
+      - live-captions/requirements.txt
+      - live-captions/packaging/**
+      - .github/workflows/live-captions-windows.yml
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install caption dependencies and PyInstaller
+        working-directory: live-captions
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt "pyinstaller>=6.11,<7"
+
+      - name: Build onedir LiveCaptions.exe
+        working-directory: live-captions
+        env:
+          HF_HUB_OFFLINE: "1"
+        run: python -m PyInstaller --noconfirm --clean packaging/LiveCaptions.spec
+
+      - name: Reject bundled speech or translation models
+        working-directory: live-captions
+        shell: pwsh
+        run: |
+          if (-not (Test-Path dist\LiveCaptions\LiveCaptions.exe)) {
+            Write-Error "LiveCaptions.exe was not produced"
+            exit 1
+          }
+          $bad = Get-ChildItem -Recurse dist\LiveCaptions -File | Where-Object {
+            $_.Name -eq "model.bin" -or $_.Extension -eq ".argosmodel"
+          }
+          if ($bad) {
+            $bad | ForEach-Object { Write-Host $_.FullName }
+            Write-Error "Model weights must download on first launch, not ship inside the exe folder"
+            exit 1
+          }
+          @"
+          雙擊 LiveCaptions.exe 開啟字幕列。不需要安裝 Python。
+          第一次開啟需要網路。字幕列會先出現，接著下載語音與翻譯模型。
+          模型沒有包在這個壓縮檔裡。
+          結束：系統匣圖示，或 Ctrl+Alt+Q。
+          "@ | Set-Content -Encoding utf8 dist\LiveCaptions\開始.txt
+
+      - name: Zip the onedir folder
+        working-directory: live-captions\dist
+        shell: pwsh
+        run: |
+          if (Test-Path LiveCaptions-windows.zip) { Remove-Item LiveCaptions-windows.zip }
+          tar -a -c -f LiveCaptions-windows.zip LiveCaptions
+          $size = (Get-Item LiveCaptions-windows.zip).Length
+          Write-Host "ZIP_BYTES=$size"
+          "ZIP_BYTES=$size" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          tar -tf LiveCaptions-windows.zip | Select-String -Pattern "LiveCaptions.exe" | Select-Object -First 3
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LiveCaptions-windows
+          path: live-captions/dist/LiveCaptions-windows.zip
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Smoke-test the frozen exe
+        working-directory: live-captions\dist\LiveCaptions
+        shell: pwsh
+        env:
+          CAPTIONS_NO_ERROR_DIALOG: "1"
+        run: |
+          $convert = Start-Process -FilePath .\LiveCaptions.exe -ArgumentList @(
+            "--convert", "请安装软件，连接网络并播放视频。"
+          ) -Wait -PassThru
+          if ($convert.ExitCode -ne 0) {
+            if (Test-Path .\LiveCaptions-error.log) { Get-Content .\LiveCaptions-error.log }
+            if (Test-Path .\LiveCaptions.log) { Get-Content .\LiveCaptions.log }
+            Write-Error "convert smoke test exited $($convert.ExitCode)"
+            exit 1
+          }
+          $log = if (Test-Path .\LiveCaptions.log) { Get-Content -Raw .\LiveCaptions.log } else { "" }
+          if ($log -notmatch "請安裝軟體，連線網路並播放影片。") {
+            Write-Host $log
+            Write-Error "frozen OpenCC conversion did not match"
+            exit 1
+          }
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $env:CAPTIONS_DATA_DIR = Join-Path (Get-Location) "smoke-data"
+          $env:CAPTIONS_CACHE_DIR = Join-Path (Get-Location) "smoke-cache"
+          $gui = Start-Process -FilePath .\LiveCaptions.exe -PassThru
+          Start-Sleep -Seconds 12
+          if ($gui.HasExited) {
+            if (Test-Path .\LiveCaptions-error.log) { Get-Content .\LiveCaptions-error.log }
+            if (Test-Path .\LiveCaptions.log) { Get-Content .\LiveCaptions.log }
+            Write-Error "caption window exited early with $($gui.ExitCode)"
+            exit 1
+          }
+          Stop-Process -Id $gui.Id -Force
+          Get-Process -Name LiveCaptions -ErrorAction SilentlyContinue | Stop-Process -Force
+
+      - name: Publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $ErrorActionPreference = "Continue"
+          $zip = "live-captions/dist/LiveCaptions-windows.zip"
+          $tag = "live-captions-windows-0.1.0"
+          gh release view $tag --repo ${{ github.repository }}
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $zip --repo ${{ github.repository }} --clobber
+          } else {
+            gh release create $tag $zip `
+              --repo ${{ github.repository }} `
+              --target ${{ github.sha }} `
+              --prerelease `
+              --title "Live Captions for Windows (preview)" `
+              --notes-file live-captions/packaging/RELEASE_NOTES.md
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $size = (Get-Item $zip).Length
+          Write-Host "RELEASE_ZIP_BYTES=$size"
+          "Download: https://github.com/${{ github.repository }}/releases/download/$tag/LiveCaptions-windows.zip ($size bytes)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append

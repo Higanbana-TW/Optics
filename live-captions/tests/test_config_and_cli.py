@@ -1,4 +1,6 @@
 import json
+import sys
+from pathlib import Path
 
 from live_captions.cli import main
 from live_captions.config import (
@@ -10,6 +12,7 @@ from live_captions.config import (
     Settings,
 )
 from live_captions.errors import ConfigError
+from live_captions.paths import app_dir
 import pytest
 
 
@@ -76,3 +79,15 @@ def test_convert_command_prints_taiwan_traditional(capsys):
 def test_headless_without_a_source_is_rejected(capsys):
     assert main(["--headless"]) == 2
     assert "請加上" in capsys.readouterr().err
+
+
+def test_source_app_dir_is_the_live_captions_folder():
+    assert app_dir() == Path(__file__).resolve().parents[1]
+
+
+def test_frozen_app_dir_is_the_exe_folder(monkeypatch, tmp_path):
+    exe = tmp_path / "LiveCaptions.exe"
+    exe.write_bytes(b"")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(exe))
+    assert app_dir() == tmp_path

@@ -101,7 +101,7 @@ python -m live_captions --demo
 
 迴路聽得到對方的聲音，聽不到你自己的麥克風，除非 Windows 把麥克風也送到播放裝置。麥克風模式則只聽你自己的聲音，聽不到對方。
 
-迴路打不開時會自動改用麥克風，字幕列會寫「無法開啟系統音訊，已改用麥克風。」若要指定播放裝置，設定名稱裡的一段文字：
+每次啟動都聽系統播放。以前存在設定裡的麥克風不會沿用。迴路打不開時，字幕列顯示繁體中文錯誤，不會改開麥克風，也不會把這次失敗存成 `audio=mic`。狀態在聽系統播放時是「聆聽系統音訊」，後面帶播放裝置名稱。只有按下 `Ctrl+Alt+A`（或系統匣裡的麥克風）才會在這一次改聽麥克風。若要指定播放裝置，設定名稱裡的一段文字：
 
 ```powershell
 $env:CAPTIONS_LOOPBACK_NAME = "Headphones"
@@ -155,7 +155,7 @@ DeepL 的目標語言是 `ZH-HANT`（免費金鑰通常以 `:fx` 結尾）。Ope
 
 | 變數 | 預設 | 說明 |
 | --- | --- | --- |
-| `CAPTIONS_AUDIO` | `loopback` | `loopback` 或 `mic` |
+| `CAPTIONS_AUDIO` | `loopback` | 啟動仍聽系統播放。麥克風只在這次執行中按 `Ctrl+Alt+A` 才開啟 |
 | `CAPTIONS_TRANSLATOR` | `local` | `local`、`deepl`、`openai`、`libre` |
 | `CAPTIONS_WHISPER_MODEL` | `base.en` | 例如 `small.en` |
 | `CAPTIONS_WHISPER_DEVICE` | `cpu` | `cpu`、`cuda`、`auto` |
@@ -192,7 +192,7 @@ python -m live_captions --convert "请安装软件，连接网络并播放视频
 
 在 Linux 上執行過：
 
-- `python -m pytest`：59 項通過。涵蓋雙語排版、整場字幕保留與捲動、結束時寫出逐字稿、OpenCC `s2twp`、假翻譯器與 DeepL／OpenAI／Libre 的請求組裝、迴路失敗時改用麥克風、音訊重採樣與斷句、點擊穿透的視窗樣式位元。
+- `python -m pytest`：60 項通過。涵蓋雙語排版、整場字幕保留與捲動、結束時寫出逐字稿、OpenCC `s2twp`、假翻譯器與 DeepL／OpenAI／Libre 的請求組裝、迴路失敗時不改聽麥克風、音訊重採樣與斷句、點擊穿透的視窗樣式位元。
 - `python -m live_captions --convert` 與 `--translate`、`--demo --headless`：本機 OPUS-MT 模型實際翻譯上面的英文句子，再轉成繁體。
 - 載入 faster-whisper `base.en`（`model.bin` 145,216,508 bytes），對一秒靜音做辨識，沒有吐出句子。這只確認模型載入，不是會議語音品質。
 - 安裝 `libegl1` 後以 `QT_QPA_PLATFORM=offscreen` 建立字幕視窗。超過三句的英文與繁體都留在可捲動的文字區，新句在最下面，往上捲之後新句不會把畫面拉回去。關閉時寫出一個 `Optics-captions-日期_時間.txt`。視窗帶有永遠置頂旗標。

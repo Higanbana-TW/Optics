@@ -10,15 +10,55 @@ import numpy as np
 from live_captions.asr.whisper_engine import WHISPER_BASE_EN_BYTES, explain_load_error, make_whisper
 from live_captions.captions.format import format_caption
 from live_captions.audio.process import UtteranceSegmenter, offer_drop_oldest, resample_linear
-from live_captions.audio.select import list_audio_report, listening_status, open_audio_source
-from live_captions.config import AppConfig
-from live_captions.errors import CaptionsError
+from live_captions.audio.select import OpenedSource, list_audio_report, listening_status
+from live_captions.config import AppConfig, load_settings, save_settings
+from live_captions.errors import AudioUnavailable, CaptionsError
 from live_captions.paths import directory_size, model_dir
 from live_captions.pipeline import CaptionPipeline, caption_from_transcript
 from live_captions.translate.factory import build_translator
 from live_captions.ui.bridge import UiBridge
 
 log = logging.getLogger(__name__)
+
+
+def ensure_startup_loopback(settings, settings_path) -> str:
+    """Every launch listens to meeting playback. A saved microphone does not stick."""
+    stale_mic = settings_path.is_file() and load_settings(settings_path).audio == "mic"
+    settings.audio = "loopback"
+    if stale_mic:
+        save_settings(settings_path, settings)
+    return "loopback"
+
+
+def open_requested_source(prefer: str, open_loopback, open_mic) -> OpenedSource:
+    """Open loopback or, only when asked, the microphone. Never fall back."""
+    if prefer == "mic":
+        try:
+            return OpenedSource(open_mic(), "mic", "")
+        except AudioUnavailable:
+            raise
+        except Exception as exc:
+            raise AudioUnavailable("無法開啟麥克風。") from exc
+    try:
+        return OpenedSource(open_loopback(), "loopback", "")
+    except AudioUnavailable:
+        raise
+    except Exception as exc:
+        raise AudioUnavailable(f"無法開啟系統音訊：{exc}") from exc
+
+
+def _loopback_device(loopback_name: str | None):
+    if sys.platform != "win32":
+        raise AudioUnavailable("WASAPI 系統迴路只支援 Windows。")
+    from live_captions.audio.wasapi import WasapiLoopbackSource
+
+    return WasapiLoopbackSource(name_contains=loopback_name)
+
+
+def _microphone_device():
+    from live_captions.audio.microphone import MicrophoneSource
+
+    return MicrophoneSource()
 
 DEMO_LINES = (
     "Hello everyone, thanks for joining the meeting.",
@@ -148,17 +188,21 @@ class CaptionService:
         while not self.stop.is_set():
             self.restart.clear()
             try:
-                opened = open_audio_source(self.mode, loopback_name=self.config.loopback_name)
+                opened = open_requested_source(
+                    self.mode,
+                    lambda: _loopback_device(self.config.loopback_name),
+                    _microphone_device,
+                )
             except CaptionsError as exc:
                 self.bridge.publish_status(str(exc))
                 if self.stop.wait(3):
                     return
                 continue
             self._source = opened.source
-            status = listening_status(opened.mode, getattr(opened.source, "device_name", ""))
-            self.listen_status = f"{opened.notice} {status}".strip() if opened.notice else status
+            device_name = str(getattr(opened.source, "device_name", "") or "")
+            self.listen_status = listening_status(opened.mode, device_name)
             self.bridge.publish_status(self.listen_status)
-            log.info("audio mode=%s device=%s", opened.mode, getattr(opened.source, "device_name", ""))
+            log.info("audio mode=%s device=%s", opened.mode, device_name)
             try:
                 for chunk in opened.source.frames(self.stop, self.restart):
                     samples = resample_linear(chunk, int(opened.source.sample_rate), 16000)
@@ -262,6 +306,7 @@ def run_app(config: AppConfig, settings, settings_path, *, demo: bool) -> int:
     from live_captions.ui.hotkeys import GlobalHotkeys
     from live_captions.ui.overlay import CaptionWindow
 
+    audio_mode = ensure_startup_loopback(settings, settings_path)
     window = CaptionWindow(settings, settings_path, config.bar_alpha)
     translator = build_translator(config)
     service = CaptionService(
@@ -270,7 +315,7 @@ def run_app(config: AppConfig, settings, settings_path, *, demo: bool) -> int:
         make_whisper(config),
         window.bridge,
         demo=demo,
-        audio_mode=settings.audio,
+        audio_mode=audio_mode,
     )
     window.on_audio_change = service.set_audio
 

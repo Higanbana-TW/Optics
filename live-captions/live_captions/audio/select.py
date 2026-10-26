@@ -13,13 +13,8 @@ class OpenedSource:
     notice: str
 
 
-def select_audio_source(
-    prefer: str,
-    open_loopback,
-    open_mic,
-    *,
-    allow_mic_fallback: bool = True,
-) -> OpenedSource:
+def select_audio_source(prefer: str, open_loopback, open_mic) -> OpenedSource:
+    """Open the requested source. A loopback failure never opens the microphone."""
     if prefer == "mic":
         try:
             return OpenedSource(open_mic(), "mic", "")
@@ -29,16 +24,10 @@ def select_audio_source(
             raise AudioUnavailable("無法開啟麥克風。") from exc
     try:
         return OpenedSource(open_loopback(), "loopback", "")
+    except AudioUnavailable:
+        raise
     except Exception as exc:
-        if not allow_mic_fallback:
-            if isinstance(exc, AudioUnavailable):
-                raise
-            raise AudioUnavailable(f"無法開啟系統音訊：{exc}") from exc
-        try:
-            source = open_mic()
-        except Exception as second:
-            raise AudioUnavailable("無法開啟系統音訊，麥克風也無法使用。") from second
-        return OpenedSource(source, "mic", "無法開啟系統音訊，已改用麥克風。")
+        raise AudioUnavailable(f"無法開啟系統音訊：{exc}") from exc
 
 
 def pick_loopback(devices: list[dict], *, default_output_name: str, preferred_substring: str | None) -> dict:
@@ -79,12 +68,7 @@ def open_audio_source(prefer: str, *, loopback_name: str | None = None) -> Opene
 
         return MicrophoneSource()
 
-    return select_audio_source(
-        prefer,
-        open_loopback,
-        open_mic,
-        allow_mic_fallback=not loopback_name,
-    )
+    return select_audio_source(prefer, open_loopback, open_mic)
 
 
 def list_audio_report() -> str:

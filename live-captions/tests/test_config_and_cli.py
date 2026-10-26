@@ -50,11 +50,12 @@ def test_dotenv_does_not_override_existing_variables(tmp_path, monkeypatch):
     assert __import__("os").environ["CAPTIONS_AUDIO"] == "mic"
 
 
-def test_audio_cli_beats_saved_settings():
+def test_startup_stays_on_loopback_when_settings_say_mic():
     saved = Settings(audio="mic")
     assert resolve_audio(cli="loopback", settings=saved, settings_existed=True, env_audio="mic") == "loopback"
-    assert resolve_audio(cli=None, settings=saved, settings_existed=True, env_audio="loopback") == "mic"
-    assert resolve_audio(cli=None, settings=saved, settings_existed=False, env_audio="loopback") == "loopback"
+    assert resolve_audio(cli=None, settings=saved, settings_existed=True, env_audio="mic") == "loopback"
+    assert resolve_audio(cli=None, settings=saved, settings_existed=False, env_audio="mic") == "loopback"
+    assert resolve_audio(cli="mic", settings=Settings(audio="loopback"), settings_existed=True, env_audio="loopback") == "mic"
 
 
 def test_invalid_audio_and_alpha_are_rejected_or_clamped():

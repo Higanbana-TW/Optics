@@ -193,11 +193,15 @@ def resolve_audio(
     settings_existed: bool,
     env_audio: str,
 ) -> str:
+    """Startup listens to meeting playback. A saved mic choice does not stick.
+
+    ``--audio mic`` still selects the microphone for this process. The hotkey
+    does that as well. ``CAPTIONS_AUDIO`` and settings.json do not.
+    """
+    del settings, settings_existed, env_audio
     if cli in {"loopback", "mic"}:
         return cli
-    if settings_existed and settings.audio in {"loopback", "mic"}:
-        return settings.audio
-    return env_audio
+    return "loopback"
 
 
 def configure_logging(verbose: bool) -> None:

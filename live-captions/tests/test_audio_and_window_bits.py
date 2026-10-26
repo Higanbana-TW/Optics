@@ -13,6 +13,8 @@ from live_captions.audio.process import (
     resample_linear,
 )
 from live_captions.audio.select import listening_status, pick_loopback, select_audio_source
+from live_captions.config import Settings, save_settings
+from live_captions.runtime import ensure_startup_loopback, open_requested_source
 from live_captions.errors import AudioUnavailable, CaptionsError
 from live_captions.translate.local_mt import EN_ZH_SHA256, EN_ZH_SIZE, safe_extract, sha256_file, split_for_translation
 from live_captions.ui.bridge import UiBridge
@@ -104,21 +106,42 @@ def test_queue_drops_the_oldest_utterance():
     assert items.get_nowait() == "new"
 
 
-def test_loopback_falls_back_to_the_microphone():
+def test_loopback_failure_does_not_open_the_microphone():
     def fail_loopback():
         raise OSError("no wasapi")
 
-    opened = select_audio_source("loopback", fail_loopback, lambda: "mic-source")
-    assert opened.mode == "mic"
-    assert opened.source == "mic-source"
-    assert opened.notice == "無法開啟系統音訊，已改用麥克風。"
+    def mic():
+        raise AssertionError("microphone opened")
+
+    with pytest.raises(AudioUnavailable, match="無法開啟系統音訊"):
+        select_audio_source("loopback", fail_loopback, mic)
+    with pytest.raises(AudioUnavailable, match="找不到預設播放裝置"):
+        select_audio_source("loopback", lambda: (_ for _ in ()).throw(AudioUnavailable("找不到預設播放裝置的 WASAPI 迴路。")), mic)
 
     opened = select_audio_source("mic", lambda: (_ for _ in ()).throw(AssertionError("loopback")), lambda: "m")
     assert opened.mode == "mic"
+    assert opened.source == "m"
     assert opened.notice == ""
 
-    with pytest.raises(AudioUnavailable):
-        select_audio_source("loopback", fail_loopback, fail_loopback)
+
+def test_startup_rewrites_a_saved_microphone_and_a_failed_loopback_stays_loopback(tmp_path):
+    path = tmp_path / "settings.json"
+    settings = Settings(audio="mic", x=12, y=34, width=800)
+    save_settings(path, settings)
+    assert ensure_startup_loopback(settings, path) == "loopback"
+    assert settings.audio == "loopback"
+    saved = path.read_text(encoding="utf-8")
+    assert '"audio": "loopback"' in saved
+    assert '"x": 12' in saved
+
+    def mic():
+        raise AssertionError("microphone opened")
+
+    with pytest.raises(AudioUnavailable, match="無法開啟系統音訊"):
+        open_requested_source("loopback", lambda: (_ for _ in ()).throw(OSError("wasapi")), mic)
+    opened = open_requested_source("loopback", lambda: type("Src", (), {"device_name": "Speakers (Realtek)"})(), mic)
+    assert opened.mode == "loopback"
+    assert listening_status(opened.mode, opened.source.device_name) == "聆聽系統音訊 · Speakers (Realtek)"
 
 
 def test_named_loopback_does_not_silently_switch_to_the_microphone():
@@ -126,7 +149,7 @@ def test_named_loopback_does_not_silently_switch_to_the_microphone():
         raise AudioUnavailable("找不到名稱包含「Headset」的系統播放裝置。")
 
     with pytest.raises(AudioUnavailable, match="Headset"):
-        select_audio_source("loopback", missing, lambda: "mic", allow_mic_fallback=False)
+        select_audio_source("loopback", missing, lambda: "mic")
 
 
 def test_pick_loopback_matches_the_default_playback_name():
@@ -143,8 +166,9 @@ def test_pick_loopback_matches_the_default_playback_name():
         pick_loopback(devices, default_output_name="Speakers (Realtek)", preferred_substring="missing")
 
 
-def test_listening_status_truncates_long_device_names():
+def test_listening_status_names_the_loopback_device():
     assert listening_status("loopback", "") == "聆聽系統音訊"
+    assert listening_status("loopback", "Speakers (Realtek)") == "聆聽系統音訊 · Speakers (Realtek)"
     status = listening_status("mic", "N" * 50)
     assert status.startswith("聆聽麥克風 · ")
     assert status.endswith("…")

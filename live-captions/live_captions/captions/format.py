@@ -86,12 +86,13 @@ def font_sizes(delta: int) -> tuple[int, int]:
     return english, chinese
 
 
-def caption_history_text(lines: list[tuple[str, str]], *, limit: int = 3) -> str:
-    """Older bilingual lines, oldest first. The current line is not included."""
-    if limit < 1:
+def caption_history_text(lines: list[tuple[str, str]], *, limit: int | None = None) -> str:
+    """Bilingual lines, oldest first. The default keeps the whole session."""
+    if limit is not None and limit < 1:
         raise ValueError("limit")
+    chosen = lines if limit is None else lines[-limit:]
     blocks: list[str] = []
-    for english, traditional in lines[-limit:]:
+    for english, traditional in chosen:
         parts = [collapse_space(part) for part in (english, traditional)]
         parts = [part for part in parts if part]
         if parts:

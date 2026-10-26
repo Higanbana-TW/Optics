@@ -2,14 +2,6 @@ name: Live Captions Windows
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - cursor/windows-live-captions-1d8e
-    paths:
-      - live-captions/live_captions/**
-      - live-captions/requirements.txt
-      - live-captions/packaging/**
-      - .github/workflows/live-captions-windows.yml
 
 permissions:
   contents: write

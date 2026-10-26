@@ -47,7 +47,7 @@ def test_font_sizes_stay_readable():
     assert font_sizes(100) == font_sizes(16)
 
 
-def test_history_keeps_recent_bilingual_lines():
+def test_history_keeps_the_whole_session():
     text = caption_history_text(
         [
             ("one", "一"),
@@ -55,12 +55,10 @@ def test_history_keeps_recent_bilingual_lines():
             ("three", "三"),
             ("four", "四"),
             ("five", "五"),
-        ],
-        limit=3,
+        ]
     )
-    assert "one" not in text and "二" not in text
-    assert text.index("three") < text.index("四") < text.index("five")
-    assert "三" in text and "五" in text
+    assert text.index("one") < text.index("二") < text.index("five")
+    assert "三" in text and "四" in text
 
 
 def test_default_bar_sits_near_the_bottom_center():

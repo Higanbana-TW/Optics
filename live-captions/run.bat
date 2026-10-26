@@ -12,7 +12,7 @@ if exist .venv goto venv_fail
 
 call :resolve_python
 if errorlevel 1 goto python_exit
-echo 正在建立虛擬環境...
+echo 正在用 Python 3.12 建立虛擬環境...
 "%PY_EXE%" -m venv .venv
 if errorlevel 1 goto venv_fail
 if not exist .venv\Scripts\python.exe goto venv_fail
@@ -43,20 +43,20 @@ if "%PY_REASON%"=="store" goto msg_store
 goto msg_missing
 
 :msg_wrong
-echo 無法繼續：現在的 Python 不是 64 位元的 Python 3.12。
-echo 32 位元，或 3.13、3.14 這類其他版本，沒有對應的 onnxruntime 套件。
-echo pip 會因此出現 ResolutionImpossible。這次不會建立虛擬環境，也不會開始安裝。
+echo 這個環境不是 64 位元 Python 3.12，所以不會安裝套件，也不會啟動字幕。
+echo 若它是用 py -3 建立的，那就是 Python 3.15。3.15 沒有 onnxruntime 安裝檔，pip 會出現 ResolutionImpossible。
+echo run.bat 只使用 py -3.12，不會再用 py -3 建立虛擬環境。
 echo.
-echo 請安裝 64 位元 Python 3.12，並勾選 "Add python.exe to PATH"：
+echo 請保留已經安裝的 Python 3.15，另外安裝 64 位元 Python 3.12，並勾選 "Add python.exe to PATH"：
 echo https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe
 echo.
-echo 若 live-captions\.venv 已經存在，請先刪除該資料夾再重新執行 run.bat。
+echo 然後刪除 live-captions\.venv，再雙擊 run.bat。
 goto fail_pause
 
 :msg_store
-echo 找不到真正的 Python。python.exe 或 python3.exe 是 Microsoft Store 的應用程式執行別名。
+echo 找不到真正的 Python 3.12。python.exe 或 python3.exe 是 Microsoft Store 的應用程式執行別名。
 echo.
-echo 請安裝 64 位元 Python 3.12，並勾選 "Add python.exe to PATH"：
+echo 請另外安裝 64 位元 Python 3.12，並勾選 "Add python.exe to PATH"。已安裝的 Python 3.15 可以留著：
 echo https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe
 echo.
 echo 然後到設定、應用程式、進階應用程式設定、應用程式執行別名，
@@ -64,20 +64,19 @@ echo 關閉 python.exe 與 python3.exe。
 goto fail_pause
 
 :msg_missing
-echo 找不到 Python。字幕程式尚未啟動。
+echo 找不到 64 位元的 Python 3.12。run.bat 只會執行 py -3.12，不會用 py -3 建立虛擬環境。
+echo py -3 若指向 Python 3.15，沒有 onnxruntime 的對應套件，pip 會出現 ResolutionImpossible。
 echo.
-echo 請安裝 64 位元 Python 3.12，並勾選 "Add python.exe to PATH"：
+echo 請保留 Python 3.15，另外安裝 64 位元 Python 3.12，並勾選 "Add python.exe to PATH"：
 echo https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe
 echo.
-echo 若 python 指令會打開 Microsoft Store，請到
-echo 設定、應用程式、進階應用程式設定、應用程式執行別名，
-echo 關閉 python.exe 與 python3.exe。
+echo 安裝完成後再執行 run.bat。若 live-captions\.venv 已經存在，請先刪除該資料夾。
 goto fail_pause
 
 :venv_fail
 echo.
-echo 建立虛擬環境失敗，不視為安裝成功。字幕程式尚未啟動。
-echo 請安裝 64 位元 Python 3.12：
+echo 用 py -3.12 建立虛擬環境失敗，不視為安裝成功。字幕程式尚未啟動。
+echo 請安裝 64 位元 Python 3.12。Python 3.15 可以留著：
 echo https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe
 echo 並刪除 live-captions\.venv 後再執行 run.bat。
 goto fail_pause
@@ -85,8 +84,8 @@ goto fail_pause
 :pip_fail
 echo.
 echo 套件安裝失敗，字幕程式尚未啟動。
-echo 若上面出現 ResolutionImpossible 或 onnxruntime，代表 Python 不是 64 位元 3.12。
-echo 請改安裝：
+echo 若上面出現 ResolutionImpossible 或 onnxruntime，代表用到的不是 64 位元 Python 3.12。
+echo py -3 可能是 Python 3.15。請保留 3.15，改安裝：
 echo https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe
 echo 然後刪除 live-captions\.venv 再執行 run.bat。
 goto fail_pause
@@ -104,37 +103,21 @@ exit /b 1
 :resolve_python
 set "PY_EXE="
 set "PY_REASON="
-set "STORE_STUB="
 where py >nul 2>&1
-if errorlevel 1 goto try_python_exe
+if errorlevel 1 goto resolve_missing
 for /f "delims=" %%E in ('py -3.12 -c "import sys; print(sys.executable)" 2^>nul') do set "PY_EXE=%%E"
-if defined PY_EXE goto resolve_check
-for /f "delims=" %%E in ('py -3 -c "import sys; print(sys.executable)" 2^>nul') do set "PY_EXE=%%E"
-if defined PY_EXE goto resolve_check
-:try_python_exe
-for /f "delims=" %%I in ('where python 2^>nul') do (
-  if not defined PY_EXE (
-    echo %%I | find /I "\WindowsApps\" >nul
-    if errorlevel 1 (
-      set "PY_EXE=%%I"
-    ) else (
-      set "STORE_STUB=1"
-    )
-  )
-)
-if defined PY_EXE goto resolve_check
-if defined STORE_STUB goto resolve_store
-set "PY_REASON=missing"
-exit /b 1
-:resolve_store
-set "PY_REASON=store"
-exit /b 1
-:resolve_check
+if not defined PY_EXE goto resolve_missing
 echo %PY_EXE% | find /I "\WindowsApps\" >nul
 if not errorlevel 1 goto resolve_store
 call :check_interpreter "%PY_EXE%"
 if errorlevel 1 exit /b 1
 exit /b 0
+:resolve_missing
+set "PY_REASON=missing"
+exit /b 1
+:resolve_store
+set "PY_REASON=store"
+exit /b 1
 
 :check_interpreter
 set "CHECK_EXE=%~1"

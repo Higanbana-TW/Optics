@@ -24,7 +24,7 @@ https://github.com/Higanbana-TW/Optics/releases/download/live-captions-windows-0
 
 - Windows 10 或 Windows 11，64 位元
 - 直接雙擊 `LiveCaptions.exe` 時不需要 Python
-- 若要從原始碼執行：必須是 64 位元 Python 3.12（這次在 Linux 上用 Python 3.12.3 跑測試）。32 位元或 3.13 以上沒有對應的 onnxruntime，pip 會出現 ResolutionImpossible。安裝檔：https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe ，並勾選 "Add python.exe to PATH"。`run.bat` 會在建立虛擬環境前拒絕其他版本。
+- 若要從原始碼執行：必須是 64 位元 Python 3.12（這次在 Linux 上用 Python 3.12.3 跑測試）。`py -3` 若選到 Python 3.15，沒有 onnxruntime，pip 會出現 ResolutionImpossible。請另外安裝 64 位元 3.12，3.15 可以留著：https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe ，並勾選 "Add python.exe to PATH"。`run.bat` 只使用 `py -3.12`。
 - 會議聲音要從喇叭或耳機播出。系統靜音時沒有字幕
 
 ## 安裝與執行

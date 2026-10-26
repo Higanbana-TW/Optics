@@ -75,7 +75,25 @@ def format_caption(
 
 
 def font_sizes(delta: int) -> tuple[int, int]:
+    """English and Traditional Chinese point sizes.
+
+    Chinese stays only a little larger than English. A much larger Chinese
+    face was pushing the second line out of the bar.
+    """
     delta = max(-6, min(16, delta))
     english = max(11, 14 + delta // 2)
-    chinese = max(16, 22 + delta)
+    chinese = max(12, 16 + delta // 2)
     return english, chinese
+
+
+def caption_history_text(lines: list[tuple[str, str]], *, limit: int = 3) -> str:
+    """Older bilingual lines, oldest first. The current line is not included."""
+    if limit < 1:
+        raise ValueError("limit")
+    blocks: list[str] = []
+    for english, traditional in lines[-limit:]:
+        parts = [collapse_space(part) for part in (english, traditional)]
+        parts = [part for part in parts if part]
+        if parts:
+            blocks.append("\n".join(parts))
+    return "\n\n".join(blocks)

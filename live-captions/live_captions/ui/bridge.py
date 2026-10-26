@@ -16,13 +16,13 @@ class UiBridge:
     def publish_status(self, text: str) -> None:
         self.statuses.put(text)
 
-    def drain_captions(self) -> CaptionState | None:
-        latest = None
+    def drain_captions(self) -> list[CaptionState]:
+        pending: list[CaptionState] = []
         while True:
             try:
-                latest = self.captions.get_nowait()
+                pending.append(self.captions.get_nowait())
             except queue.Empty:
-                return latest
+                return pending
 
     def drain_statuses(self) -> str | None:
         latest = None

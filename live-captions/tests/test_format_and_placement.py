@@ -1,4 +1,4 @@
-from live_captions.captions.format import font_sizes, format_caption
+from live_captions.captions.format import caption_history_text, font_sizes, format_caption
 from live_captions.captions.placement import Rect, default_bar_rect, resolve_bar_rect
 from live_captions.captions.transcript import prepare_transcript
 
@@ -41,10 +41,26 @@ def test_long_chinese_keeps_the_latest_characters():
 
 
 def test_font_sizes_stay_readable():
-    assert font_sizes(0) == (14, 22)
-    assert font_sizes(16) == (22, 38)
-    assert font_sizes(-6) == (11, 16)
+    assert font_sizes(0) == (14, 16)
+    assert font_sizes(16) == (22, 24)
+    assert font_sizes(-6) == (11, 13)
     assert font_sizes(100) == font_sizes(16)
+
+
+def test_history_keeps_recent_bilingual_lines():
+    text = caption_history_text(
+        [
+            ("one", "一"),
+            ("two", "二"),
+            ("three", "三"),
+            ("four", "四"),
+            ("five", "五"),
+        ],
+        limit=3,
+    )
+    assert "one" not in text and "二" not in text
+    assert text.index("three") < text.index("四") < text.index("five")
+    assert "三" in text and "五" in text
 
 
 def test_default_bar_sits_near_the_bottom_center():

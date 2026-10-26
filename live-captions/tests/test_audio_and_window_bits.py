@@ -169,15 +169,18 @@ def test_hotkeys_do_not_start_a_thread_off_windows():
     hotkeys.stop()
 
 
-def test_bridge_keeps_only_the_latest_update():
+def test_bridge_keeps_every_caption_and_the_latest_status():
     bridge = UiBridge()
     bridge.publish_caption(CaptionState("one", "一"))
     bridge.publish_caption(CaptionState("two", "二"))
     bridge.publish_status("先")
     bridge.publish_status("後")
-    assert bridge.drain_captions() == CaptionState("two", "二")
+    assert bridge.drain_captions() == [
+        CaptionState("one", "一"),
+        CaptionState("two", "二"),
+    ]
     assert bridge.drain_statuses() == "後"
-    assert bridge.drain_captions() is None
+    assert bridge.drain_captions() == []
 
 
 def test_model_package_hash_is_pinned_and_zip_paths_are_rejected(tmp_path):

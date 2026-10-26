@@ -4,7 +4,7 @@ import queue
 import sys
 from pathlib import Path
 
-from live_captions.captions.format import font_sizes, format_caption
+from live_captions.captions.format import caption_history_text, collapse_space, font_sizes
 from live_captions.captions.placement import Rect, resolve_bar_rect
 from live_captions.config import Settings, save_settings
 from live_captions.pipeline import CaptionState
@@ -74,6 +74,9 @@ class CaptionWindow(QWidget):
         self._drag_offset: QPoint | None = None
         self._has_caption = False
         self._status_text = "正在啟動…"
+        self._current: CaptionState | None = None
+        self._recent: list[CaptionState] = []
+        self._anchor_bottom: int | None = None
         self._build()
         self._apply_fonts()
         self._place()
@@ -109,15 +112,24 @@ class CaptionWindow(QWidget):
         layout.setSpacing(2)
         self.status = QLabel()
         self.status.setObjectName("status")
+        self.history = QLabel()
+        self.history.setObjectName("history")
+        self.history.setWordWrap(True)
+        self.history.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.english = QLabel()
         self.english.setObjectName("english")
         self.english.setWordWrap(True)
+        self.english.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.chinese = QLabel()
         self.chinese.setObjectName("chinese")
         self.chinese.setWordWrap(True)
-        for label in (self.status, self.english, self.chinese):
+        self.chinese.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        for label in (self.status, self.history, self.english, self.chinese):
             label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
             layout.addWidget(label)
+        self.history.hide()
+        self.english.hide()
+        self.chinese.hide()
         self.setStyleSheet(
             f"""
             #bar {{
@@ -126,6 +138,7 @@ class CaptionWindow(QWidget):
                 border: 1px solid rgba(255, 255, 255, 36);
             }}
             QLabel {{ background: transparent; }}
+            #history {{ color: rgba(210, 214, 220, 168); }}
             #english {{ color: rgba(230, 232, 236, 230); }}
             #chinese {{ color: #ffffff; }}
             #status {{ color: rgba(186, 214, 255, 230); }}
@@ -175,6 +188,9 @@ class CaptionWindow(QWidget):
         screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
         if screen is None:
             self.setFixedWidth(880)
+            if self._anchor_bottom is None:
+                self._anchor_bottom = self.y() + self.height()
+            self._fit_to_text()
             return
         area = screen.availableGeometry()
         work = Rect(area.x(), area.y(), area.width(), area.height())
@@ -185,6 +201,8 @@ class CaptionWindow(QWidget):
         rect = resolve_bar_rect(self.settings.x, self.settings.y, self.settings.width, work, screens or [work])
         self.setFixedWidth(rect.width)
         self.move(rect.x, rect.y)
+        self._anchor_bottom = rect.y + rect.height
+        self._fit_to_text()
 
     def _apply_fonts(self) -> None:
         english_size, chinese_size = font_sizes(self.settings.font_delta)
@@ -192,13 +210,17 @@ class CaptionWindow(QWidget):
         _apply_family(english)
         english.setPointSize(english_size)
         self.english.setFont(english)
+        history = QFont()
+        _apply_family(history)
+        history.setPointSize(max(11, english_size - 1))
+        self.history.setFont(history)
         chinese = QFont()
         _apply_family(chinese)
         chinese.setPointSize(chinese_size)
-        chinese.setWeight(QFont.Weight.DemiBold)
+        chinese.setWeight(QFont.Weight.Normal)
         self.chinese.setFont(chinese)
         self._apply_status_style()
-        self.setFixedHeight(max(140, int((english_size + chinese_size) * 2.2) + 48))
+        self._fit_to_text()
 
     def _apply_status_style(self) -> None:
         font = QFont()
@@ -224,8 +246,7 @@ class CaptionWindow(QWidget):
         if status is not None:
             self._status_text = status
             self._render_status()
-        state = self.bridge.drain_captions()
-        if state is not None:
+        for state in self.bridge.drain_captions():
             self.set_caption(state)
 
     def _handle_hotkey(self, hotkey_id: int) -> None:
@@ -239,17 +260,31 @@ class CaptionWindow(QWidget):
             self.request_quit()
 
     def set_caption(self, state: CaptionState) -> None:
-        formatted = format_caption(state.english, state.traditional)
-        self.english.setText(formatted.english)
-        self.chinese.setText(formatted.traditional)
-        self._has_caption = bool(formatted.english or formatted.traditional)
+        if self._current is not None and state != self._current:
+            self._recent.append(self._current)
+            del self._recent[:-3]
+        self._current = state
+        history = caption_history_text(
+            [(item.english, item.traditional) for item in self._recent],
+            limit=3,
+        )
+        self._set_wrapped(self.history, history)
+        self._set_wrapped(self.english, collapse_space(state.english))
+        self._set_wrapped(self.chinese, collapse_space(state.traditional))
+        self._has_caption = bool(state.english.strip() or state.traditional.strip())
         self._apply_status_style()
+        self._fit_to_text()
+
+    def _set_wrapped(self, label, text: str) -> None:
+        label.setText(text)
+        label.setVisible(bool(text.strip()))
 
     def _render_status(self) -> None:
         text = self._status_text
         if self.settings.click_through:
             text = f"點擊穿透 · {text}" if text else "點擊穿透 · Ctrl+Alt+C 關閉"
         self.status.setText(text)
+        self._fit_to_text()
 
     def set_click_through(self, enabled: bool) -> None:
         self.settings.click_through = enabled
@@ -326,8 +361,60 @@ class CaptionWindow(QWidget):
             self._remember_geometry()
         super().mouseReleaseEvent(event)
 
+    def _text_width(self) -> int:
+        outer = self.layout().contentsMargins()
+        inner = self.frame.layout().contentsMargins()
+        return max(160, self.width() - outer.left() - outer.right() - inner.left() - inner.right())
+
+    def _fit_to_text(self) -> None:
+        if self.width() < 200 or self.layout() is None or self.frame.layout() is None:
+            return
+        text_width = self._text_width()
+        labels = (self.status, self.history, self.english, self.chinese)
+        heights: list[int] = []
+        for label in labels:
+            if not label.isVisible() or not label.text().strip():
+                label.setMinimumHeight(0)
+                label.setMaximumHeight(16777215)
+                continue
+            height = max(1, label.heightForWidth(text_width))
+            label.setMinimumHeight(height)
+            label.setMaximumHeight(max(height, label.sizeHint().height()))
+            heights.append(height)
+        if not heights:
+            return
+        outer = self.layout().contentsMargins()
+        inner = self.frame.layout().contentsMargins()
+        spacing = self.frame.layout().spacing()
+        total = (
+            outer.top()
+            + outer.bottom()
+            + inner.top()
+            + inner.bottom()
+            + sum(heights)
+            + spacing * (len(heights) - 1)
+            + 6
+        )
+        screen = QGuiApplication.screenAt(self.frameGeometry().center()) or QGuiApplication.primaryScreen()
+        area = screen.availableGeometry() if screen is not None else None
+        if area is not None:
+            total = min(total, max(120, int(area.height() * 0.55)))
+        geo = self.geometry()
+        bottom = self._anchor_bottom if self._anchor_bottom is not None else geo.y() + max(geo.height(), total)
+        y = bottom - total
+        if area is not None:
+            if y < area.top():
+                y = area.top()
+            if y + total > area.bottom() + 1:
+                y = max(area.top(), area.bottom() + 1 - total)
+        self.setFixedHeight(total)
+        if geo.x() != self.x() or y != self.y():
+            self.move(geo.x(), y)
+        self._anchor_bottom = y + total
+
     def _remember_geometry(self) -> None:
         geo = self.geometry()
+        self._anchor_bottom = geo.y() + geo.height()
         self.settings.x = geo.x()
         self.settings.y = geo.y()
         self.settings.width = geo.width()

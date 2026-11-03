@@ -6,26 +6,28 @@ from __future__ import annotations
 from openpyxl import Workbook
 from openpyxl.chart import Reference, ScatterChart, Series
 from openpyxl.chart.marker import Marker
-from openpyxl.chart.shapes import GraphicalProperties
 from openpyxl.comments import Comment
-from openpyxl.drawing.line import LineProperties
 from openpyxl.formatting.rule import CellIsRule, FormulaRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.workbook.defined_name import DefinedName
 from openpyxl.worksheet.datavalidation import DataValidation
-from openpyxl.chart.legend import Legend
+
+from sfr_geometry import N_CURVE, POWERS, example_curve
 
 OUT = "/workspace/sfr-pattern/Imatest_SFR_pattern_ZWCAD.xlsx"
 
 N_SAMP = 33
 N_EDGE = 4
-N_ITER = 8
 LAST_I = N_SAMP - 1  # 32
 SAMPLE_FIRST = 2
 SAMPLE_LAST = SAMPLE_FIRST + N_EDGE * N_SAMP - 1  # 133
-CENTER_ROW = SAMPLE_LAST + 1  # 134 on 迭代
 CIRCLE_START = 12
+DIST_FIRST = 2
+DIST_LAST = DIST_FIRST + N_CURVE - 1  # 10001
+COEF_NAMES = ("Coef1", "Coef3", "Coef5", "Coef7", "Coef9")
+IMG_RANGE = f"'畸變座標'!$A${DIST_FIRST}:$A${DIST_LAST}"
+ANG_RANGE = f"'畸變座標'!$B${DIST_FIRST}:$B${DIST_LAST}"
 
 NAVY = "1F4E79"
 TEAL = "0E6B6B"
@@ -118,73 +120,15 @@ def circle_row(edge, local):
     return CIRCLE_START + (edge - 1) * 13 + local
 
 
-def iter_col(it, offset):
-    """1-based column. it is 1..N_ITER, offset 0..14 within the Newton block."""
-    return 3 + (it - 1) * 15 + offset
-
-
-def iter_letter(it, offset):
-    return get_column_letter(iter_col(it, offset))
-
-
-OFFSETS = {
-    "r2": 0,
-    "r4": 1,
-    "rad": 2,
-    "q": 3,
-    "tx": 4,
-    "ty": 5,
-    "Fx": 6,
-    "Fy": 7,
-    "Jxx": 8,
-    "Jxy": 9,
-    "Jyx": 10,
-    "Jyy": 11,
-    "det": 12,
-    "x": 13,
-    "y": 14,
-}
-
-
-def write_newton_row(ws, row, xd_formula, yd_formula):
-    ws.cell(row, 1, xd_formula)
-    ws.cell(row, 2, yd_formula)
-    for it in range(1, N_ITER + 1):
-        if it == 1:
-            px, py = f"A{row}", f"B{row}"
+def tan_poly(u_expr):
+    """Odd polynomial in u. u_expr is an Excel expression already in parentheses-safe form."""
+    terms = []
+    for name, power in zip(COEF_NAMES, POWERS):
+        if power == 1:
+            terms.append(f"{name}*({u_expr})")
         else:
-            px = f"{iter_letter(it - 1, OFFSETS['x'])}{row}"
-            py = f"{iter_letter(it - 1, OFFSETS['y'])}{row}"
-        base = iter_col(it, 0)
-        cells = {}
-        for key, off in OFFSETS.items():
-            cells[key] = f"{get_column_letter(base + off)}{row}"
-        r2, r4, rad, q = cells["r2"], cells["r4"], cells["rad"], cells["q"]
-        tx, ty, fx, fy = cells["tx"], cells["ty"], cells["Fx"], cells["Fy"]
-        jxx, jxy, jyx, jyy, det = cells["Jxx"], cells["Jxy"], cells["Jyx"], cells["Jyy"], cells["det"]
-        ws.cell(row, base + 0, f"={px}^2+{py}^2")
-        ws.cell(row, base + 1, f"={r2}^2")
-        ws.cell(row, base + 2, f"=1+EffK1*{r2}+EffK2*{r4}+EffK3*{r2}*{r4}")
-        ws.cell(row, base + 3, f"=EffK1+2*EffK2*{r2}+3*EffK3*{r4}")
-        ws.cell(row, base + 4, f"=2*EffP1*{px}*{py}+EffP2*({r2}+2*{px}^2)")
-        ws.cell(row, base + 5, f"=EffP1*({r2}+2*{py}^2)+2*EffP2*{px}*{py}")
-        ws.cell(row, base + 6, f"={px}*{rad}+{tx}-A{row}")
-        ws.cell(row, base + 7, f"={py}*{rad}+{ty}-B{row}")
-        ws.cell(row, base + 8, f"={rad}+2*{q}*{px}^2+(2*EffP1*{py}+6*EffP2*{px})")
-        ws.cell(row, base + 9, f"=2*{q}*{px}*{py}+(2*EffP1*{px}+2*EffP2*{py})")
-        ws.cell(row, base + 10, f"=2*{q}*{px}*{py}+(2*EffP1*{px}+2*EffP2*{py})")
-        ws.cell(row, base + 11, f"={rad}+2*{q}*{py}^2+(6*EffP1*{py}+2*EffP2*{px})")
-        ws.cell(row, base + 12, f"={jxx}*{jyy}-{jxy}*{jyx}")
-        ws.cell(
-            row,
-            base + 13,
-            f'=IF(ABS({det})<0.00000000000001,{px},{px}+((-{jyy}*{fx}+{jxy}*{fy})/{det}))',
-        )
-        ws.cell(
-            row,
-            base + 14,
-            f'=IF(ABS({det})<0.00000000000001,{py},{py}+(({jyx}*{fx}-{jxx}*{fy})/{det}))',
-        )
+            terms.append(f"{name}*({u_expr})^{power}")
+    return "(" + "+".join(terms) + ")"
 
 
 def point_line(x, y, x1, y1, x2, y2):
@@ -217,11 +161,13 @@ def build():
     ws_scr = wb.create_sheet("指令")
     ws_s = wb.create_sheet("取樣")
     ws_f = wb.create_sheet("擬合")
-    ws_it = wb.create_sheet("迭代_勿改")
+    ws_dist = wb.create_sheet("畸變座標")
+    ws_curve = wb.create_sheet("曲線_勿改")
     ws_help = wb.create_sheet("說明")
 
+    build_distortion(ws_dist)
+    build_curve(wb, ws_curve)
     build_params(wb, ws_p)
-    build_iteration(ws_it)
     build_samples(ws_s)
     build_fit(ws_f)
     build_rules(ws_rule)
@@ -229,9 +175,8 @@ def build():
     build_coords(ws_xy)
     build_preview(ws_view, ws_s)
     build_help(ws_help)
-    link_param_outputs(ws_p)
 
-    ws_it.sheet_state = "hidden"
+    ws_curve.sheet_state = "hidden"
     wb.calculation.calcMode = "auto"
     wb.calculation.fullCalcOnLoad = True
     wb.properties.title = "Imatest SFR pattern for ZWCAD"
@@ -246,6 +191,181 @@ def build():
     print(OUT)
 
 
+def curve_mask():
+    return f"(ISNUMBER({IMG_RANGE}))*(ISNUMBER({ANG_RANGE}))*({IMG_RANGE}>=0)"
+
+
+def build_distortion(ws):
+    ws.sheet_properties.tabColor = "7D6608"
+    ws["A1"] = "半像高 mm"
+    ws["B1"] = "半視場角 度"
+    for col in (1, 2):
+        ws.cell(1, col).font = font(bold=True, color=WHITE)
+        ws.cell(1, col).fill = fill_navy
+        ws.cell(1, col).alignment = center
+    ws["A1"].comment = Comment(
+        "從第 2 列貼上。半像高是主點到該視場的距離，單位公厘。0 是光軸。最多 10000 列，建議就用滿。",
+        "SFR",
+    )
+    ws["B1"].comment = Comment(
+        "對應的物方半視場角，單位度。與半像高一一對應，由小到大。桶形鏡頭同一像高的角度會比近軸更大。",
+        "SFR",
+    )
+    heights, angles = example_curve()
+    for i, (height, angle) in enumerate(zip(heights, angles)):
+        row = DIST_FIRST + i
+        cell_h = ws.cell(row, 1, height)
+        cell_a = ws.cell(row, 2, angle)
+        cell_h.number_format = "0.000000"
+        cell_a.number_format = "0.000000"
+        cell_h.fill = fill_in
+        cell_a.fill = fill_in
+        cell_h.font = font_in
+        cell_a.font = font_in
+    ws["D1"] = "這兩欄是畸變座標。範例 10000 點可整欄覆蓋成自己的量測。空白列會被略過。"
+    ws["D1"].font = font_small
+    ws.merge_cells("D1:H1")
+    status = [
+        (3, "點數", "=Npts", "0"),
+        (4, "點數判定", '=IF(Npts<1000,"不符合",IF(Npts<10000,"警告","符合建議"))', None),
+        (5, "最大半像高", "=Hscale", "0.000"),
+        (6, "角度 RMSE", "=FitRmse", "0.000000"),
+        (7, "近軸焦距", "=FocalUse", "0.000"),
+        (8, "水平視場角", "=HFovOut", "0.000"),
+        (9, "垂直視場角", "=VFovOut", "0.000"),
+        (10, "對角視場角", "=DFovOut", "0.000"),
+    ]
+    ws["D2"] = "由這張表擬合出來"
+    ws["D2"].font = font(bold=True, color=NAVY)
+    for row, text, formula, fmt in status:
+        ws.cell(row, 4, text).font = font_label
+        cell = ws.cell(row, 5, formula)
+        apply_output(cell, fmt)
+    ws["F3"] = "列"
+    ws["F5"] = "mm"
+    ws["F6"] = "度"
+    ws["F7"] = "mm"
+    ws["F8"] = "度"
+    ws["F9"] = "度"
+    ws["F10"] = "度"
+    for row in range(3, 11):
+        ws.cell(row, 6).font = font_small
+    ws.column_dimensions["A"].width = 18
+    ws.column_dimensions["B"].width = 18
+    ws.column_dimensions["C"].width = 3
+    ws.column_dimensions["D"].width = 22
+    ws.column_dimensions["E"].width = 16
+    ws.column_dimensions["F"].width = 8
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:B{DIST_LAST}"
+    ws.sheet_view.zoomScale = 110
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+    ws.page_setup.fitToPage = True
+    ws.page_setup.fitToWidth = 1
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+
+
+def build_curve(wb, ws):
+    """Normal equations of tan(θ) on u, u^3, …, u^9, solved by Gaussian elimination."""
+    ws.sheet_properties.tabColor = "AEB6BF"
+    add_name(wb, "ImgH", IMG_RANGE)
+    add_name(wb, "HalfAng", ANG_RANGE)
+    mask = curve_mask()
+    ws["B2"] = f"=SUMPRODUCT({mask})"
+    ws["B3"] = f"=IF(COUNT({IMG_RANGE})=0,0,MAX({IMG_RANGE}))"
+    add_name(wb, "Npts", "'曲線_勿改'!$B$2")
+    add_name(wb, "Hscale", "'曲線_勿改'!$B$3")
+
+    exponents = []
+    for i, pi in enumerate(POWERS):
+        for pj in POWERS[i:]:
+            total = pi + pj
+            if total not in exponents:
+                exponents.append(total)
+    for index, exponent in enumerate(exponents):
+        row = 2 + index
+        ws.cell(row, 4, exponent)
+        ws.cell(
+            row,
+            5,
+            f'=IF(Hscale<=0,0,SUMPRODUCT({mask}*POWER({IMG_RANGE}/Hscale,{exponent})))',
+        )
+    for index, power in enumerate(POWERS):
+        row = 2 + index
+        ws.cell(row, 7, power)
+        ws.cell(
+            row,
+            8,
+            f'=IF(Hscale<=0,0,SUMPRODUCT({mask}*POWER({IMG_RANGE}/Hscale,{power})*TAN(RADIANS({ANG_RANGE}))))',
+        )
+    ws["I2"] = (
+        f'=IF(Hscale<=0,0,SUMPRODUCT({mask}*TAN(RADIANS({ANG_RANGE}))*TAN(RADIANS({ANG_RANGE}))))'
+    )
+
+    def moment_ref(exponent):
+        return f"E{2 + exponents.index(exponent)}"
+
+    def rhs_ref(index):
+        return f"H{2 + index}"
+
+    def cell_ref(stage, i, j):
+        return f"{get_column_letter(2 + j)}{14 + stage * 6 + i}"
+
+    for i in range(5):
+        for j in range(5):
+            ws[cell_ref(0, i, j)] = f"={moment_ref(POWERS[i] + POWERS[j])}"
+        ws[cell_ref(0, i, 5)] = f"={rhs_ref(i)}"
+
+    for stage in range(1, 5):
+        pivot = stage - 1
+        for i in range(5):
+            for j in range(6):
+                prev_ij = cell_ref(stage - 1, i, j)
+                if i <= pivot:
+                    ws[cell_ref(stage, i, j)] = f"={prev_ij}"
+                else:
+                    prev_ik = cell_ref(stage - 1, i, pivot)
+                    prev_kk = cell_ref(stage - 1, pivot, pivot)
+                    prev_kj = cell_ref(stage - 1, pivot, j)
+                    ws[cell_ref(stage, i, j)] = (
+                        f'=IF(ABS({prev_kk})<0.000000000001,NA(),'
+                        f'{prev_ij}-{prev_ik}/{prev_kk}*{prev_kj})'
+                    )
+
+    # Back-substitution into column J, rows 14..18, highest power first.
+    for i in range(4, -1, -1):
+        row = 14 + i
+        diag = cell_ref(4, i, i)
+        rhs = cell_ref(4, i, 5)
+        if i == 4:
+            expr = f"{rhs}/{diag}"
+        else:
+            sub = "+".join(f"{cell_ref(4, i, j)}*J{14 + j}" for j in range(i + 1, 5))
+            expr = f"({rhs}-({sub}))/{diag}"
+        ws.cell(row, 10, f'=IF(ABS({diag})<0.000000000001,NA(),{expr})')
+        add_name(wb, COEF_NAMES[i], f"'曲線_勿改'!$J${row}")
+
+    poly = "+".join(
+        f"{name}*POWER({IMG_RANGE}/Hscale,{power})" if power > 1 else f"{name}*({IMG_RANGE}/Hscale)"
+        for name, power in zip(COEF_NAMES, POWERS)
+    )
+    ws["B5"] = (
+        f'=IF(OR(Npts<5,Hscale<=0),NA(),'
+        f'SQRT(SUMPRODUCT({mask}*(DEGREES(ATAN({poly}))-{ANG_RANGE})^2)/Npts))'
+    )
+    add_name(wb, "FitRmse", "'曲線_勿改'!$B$5")
+    ws["A2"] = "點數"
+    ws["A3"] = "h_scale"
+    ws["A5"] = "角度 RMSE"
+    ws.sheet_view.zoomScale = 80
+
+
+def chart_radius_factor(h_expr):
+    """Excel expression for tan(θ) at image height h_expr."""
+    return tan_poly(f"({h_expr})/Hscale")
+
+
 def build_params(wb, ws):
     ws.sheet_properties.tabColor = NAVY
     ws.page_setup.orientation = "landscape"
@@ -254,17 +374,20 @@ def build_params(wb, ws):
     ws.page_setup.fitToHeight = 1
     ws.freeze_panes = "A5"
     ws.row_dimensions[1].height = 28
-    ws.row_dimensions[2].height = 32
+    ws.row_dimensions[2].height = 36
     ws.merge_cells("A1:D1")
     ws["A1"] = "Imatest SFR 斜方塊邊線"
     ws["A1"].font = font_title
     ws.merge_cells("A2:D2")
-    ws["A2"] = "只畫邊線。黃底可改。Sensor 上是直的斜方塊；指令裡的座標已逆畸變，給中望 CAD 的 LINE / ARC 用。"
+    ws["A2"] = (
+        "只畫邊線。黃底可改。水平視場角由 sensor 像素、像素尺寸和「畸變座標」的半像高–半視場角曲線算出。"
+        "圖卡座標已按這條曲線預變形，給中望 CAD 的 LINE / ARC 用。"
+    )
     ws["A2"].font = font_small
     ws["A2"].alignment = left_align
 
     ws.merge_cells("I1:K2")
-    ws["I1"] = '=RuleAll'
+    ws["I1"] = "=RuleAll"
     ws["I1"].font = font(size=22, bold=True, color=NAVY)
     ws["I1"].alignment = Alignment(horizontal="center", vertical="center")
     ws["I1"].fill = fill_out
@@ -273,16 +396,14 @@ def build_params(wb, ws):
 
     section(ws, 4, "一、Sensor 與拍攝位置")
     rows = [
-        (5, "水平像素", "px", "Sensor 寬方向的有效像素", "PixW", 4000, "0"),
+        (5, "水平像素", "px", "Sensor 寬方向的有效像素。水平半像高 = 這個數 × 像素尺寸 / 2", "PixW", 4000, "0"),
         (6, "垂直像素", "px", "Sensor 高方向的有效像素", "PixH", 3000, "0"),
         (7, "像素尺寸", "μm", "正方像素邊長", "PixUm", 1.55, "0.000"),
         (8, "周邊視場位置", "0–1", "0 = 主點，1 = 下方所選基準的邊緣", "FieldPos", 0.7, "0.00"),
         (9, "視場方位角", "度", "0° 向右（+X），90° 向上（+Y），45° 為對角", "AzimuthDeg", 45, "0.00"),
-        (11, "測試距離", "mm", "前主點到圖卡平面", "TestDist", 500, "0.00"),
-        (13, "焦距", "mm", "近軸焦距。不要用已經含畸變的等效焦距再疊一次 k", "FocalMm", 6, "0.000"),
-        (14, "水平視場角", "度", "只有焦距來源選「由水平視場角」時才用", "HFovDeg", 60, "0.00"),
-        (16, "主點偏移 X", "px", "相對 sensor 中心，右為正", "PrinPx", 0, "0.00"),
-        (17, "主點偏移 Y", "px", "相對 sensor 中心，上為正", "PrinPy", 0, "0.00"),
+        (11, "測試距離", "mm", "入瞳（節點）到圖卡平面。圖卡半徑 = 距離 × tan(半視場角)", "TestDist", 500, "0.00"),
+        (12, "主點偏移 X", "px", "相對 sensor 中心，右為正", "PrinPx", 0, "0.00"),
+        (13, "主點偏移 Y", "px", "相對 sensor 中心，上為正", "PrinPy", 0, "0.00"),
     ]
     for row, text, unit, note, name, value, fmt in rows:
         label(ws, row, text, unit, note)
@@ -296,176 +417,86 @@ def build_params(wb, ws):
     apply_input(ws["B10"], "1.0 視場的長度。對角是 sensor 半對角，最常用。")
     add_name(wb, "FieldRef", "'參數'!$B$10")
 
-    label(ws, 12, "焦距來源", "", "沒有焦距時，用水平視場角反推近軸焦距")
-    ws["B12"] = "直接輸入焦距"
-    apply_input(ws["B12"])
-    add_name(wb, "FocalSrc", "'參數'!$B$12")
+    section(ws, 15, "二、SFR 斜方塊（Imatest 斜邊）")
+    label(ws, 16, "傾斜角", "度", "方塊相對水平軸。ISO 常用 5° 或 5.71°")
+    ws["B16"] = 5
+    apply_input(ws["B16"], "必須離開 0°、90° 和 45° 至少 2°。建議 3° 到 7°。5.71° = arctan(0.1)。")
+    ws["B16"].number_format = "0.00"
+    add_name(wb, "TiltDeg", "'參數'!$B$16")
 
-    label(ws, 15, "投影模型", "", "薄透鏡用 (測試距離−焦距)/焦距")
-    ws["B15"] = "薄透鏡"
-    apply_input(ws["B15"], "圖卡在有限距離時用薄透鏡。距離遠大於焦距時，兩種結果接近。")
-    add_name(wb, "ProjModel", "'參數'!$B$15")
+    label(ws, 17, "目標邊長", "px", "這條邊在 sensor 上的直線長度，用來決定圖卡尺寸")
+    ws["B17"] = 200
+    apply_input(ws["B17"], "Imatest 建議沿邊約 80–300 px。預設 200。只決定邊線長度，不含填色。")
+    ws["B17"].number_format = "0"
+    add_name(wb, "EdgePx", "'參數'!$B$17")
 
-    section(ws, 19, "二、SFR 斜方塊（Imatest 斜邊）")
-    label(ws, 20, "傾斜角", "度", "方塊相對水平軸。ISO 常用 5° 或 5.71°")
-    ws["B20"] = 5
-    apply_input(ws["B20"], "必須離開 0°、90° 和 45° 至少 2°。建議 3° 到 7°。5.71° = arctan(0.1)。")
-    ws["B20"].number_format = "0.00"
-    add_name(wb, "TiltDeg", "'參數'!$B$20")
-
-    label(ws, 21, "目標邊長", "px", "這條邊在 sensor 上的直線長度，用來決定圖卡尺寸")
-    ws["B21"] = 200
-    apply_input(ws["B21"], "Imatest 建議沿邊約 80–300 px。預設 200。只決定邊線長度，不含填色。")
-    ws["B21"].number_format = "0"
-    add_name(wb, "EdgePx", "'參數'!$B$21")
-
-    section(ws, 24, "三、鏡頭畸變（預變形）")
-    label(ws, 25, "畸變模型", "", "三種都是把「想在 sensor 上看到的直邊」反算回圖卡")
-    ws["B25"] = "Brown-Conrady"
-    apply_input(ws["B25"], "Brown-Conrady 用 k1 k2 k3 p1 p2。百分比多項式與視場表用 Zemax 同號的畸變%。")
-    add_name(wb, "DistModel", "'參數'!$B$25")
-
-    for row, text, name, value, note in [
-        (26, "k1", "RadK1", -0.3, "r = 像高/焦距。k1 < 0 是桶形，圖卡會預彎成枕形"),
-        (27, "k2", "RadK2", 0.05, "r^4 項"),
-        (28, "k3", "RadK3", 0, "r^6 項"),
-        (29, "p1", "TanP1", 0, "切向，通常很小"),
-        (30, "p2", "TanP2", 0, "切向"),
-    ]:
-        label(ws, row, text, "", note)
-        cell = ws.cell(row, 2, value)
-        apply_input(cell)
-        cell.number_format = "0.000000"
-        add_name(wb, name, f"'參數'!$B${row}")
-
-    for row, text, name, note in [
-        (31, "D2", "PolyD2", "δ = D2·ρ² + D4·ρ⁴ + D6·ρ⁶，δ 是分數，ρ = 理想像高/半對角"),
-        (32, "D4", "PolyD4", "百分比多項式才使用。−0.03 代表二次項在全視場約 −3%"),
-        (33, "D6", "PolyD6", "高次項"),
-    ]:
-        label(ws, row, text, "分數", note)
-        cell = ws.cell(row, 2, 0)
-        apply_input(cell)
-        cell.number_format = "0.000000"
-        add_name(wb, name, f"'參數'!$B${row}")
-
-    section(ws, 35, "視場–畸變對照表（模型選「視場畸變表」才用）", cols=4)
-    ws["A36"] = "表列"
-    ws["B36"] = "理想相對視場 ρ"
-    ws["C36"] = "畸變 %"
-    for col in (1, 2, 3):
-        ws.cell(36, col).font = font(bold=True, size=9)
-    rhos = [0, 0.2, 0.4, 0.5, 0.6, 0.7, 0.85, 1]
-    for i, rho in enumerate(rhos):
-        row = 37 + i
-        ws.cell(row, 1, f"視場 {i+1}").font = font_small
-        cell_rho = ws.cell(row, 2, rho)
-        cell_rho.number_format = "0.00"
-        apply_input(cell_rho, "由小到大。0 是光軸，1 是半對角。")
-        cell_pct = ws.cell(row, 3, 0)
-        cell_pct.number_format = "0.000"
-        apply_input(cell_pct, "與 Zemax Distortion 同號：(實際像高−理想像高)/理想像高×100。桶形為負。")
-        ws.cell(row, 27, f"=B{row}^2")
-        ws.cell(row, 28, f"=B{row}^4")
-        ws.cell(row, 29, f"=B{row}^6")
-        ws.cell(row, 30, f"=IF(C{row}=\"\",0,C{row}/100)")
-
-    # Least-squares sums in column 27-30 header note
-    ws["AA36"] = "ρ²"
-    ws["AB36"] = "ρ⁴"
-    ws["AC36"] = "ρ⁶"
-    ws["AD36"] = "δ"
-    for col in range(27, 31):
-        ws.cell(36, col).font = font_small
-
-    ws["AA46"] = '=SUMPRODUCT(AA37:AA44,AA37:AA44)'
-    ws["AB46"] = '=SUMPRODUCT(AA37:AA44,AB37:AB44)'
-    ws["AC46"] = '=SUMPRODUCT(AA37:AA44,AC37:AC44)'
-    ws["AA47"] = '=SUMPRODUCT(AB37:AB44,AB37:AB44)'
-    ws["AB47"] = '=SUMPRODUCT(AB37:AB44,AC37:AC44)'
-    ws["AC47"] = '=SUMPRODUCT(AC37:AC44,AC37:AC44)'
-    ws["AA48"] = '=SUMPRODUCT(AA37:AA44,AD37:AD44)'
-    ws["AB48"] = '=SUMPRODUCT(AB37:AB44,AD37:AD44)'
-    ws["AC48"] = '=SUMPRODUCT(AC37:AC44,AD37:AD44)'
-    # det and Cramer, using the sums above
-    # Saa AA46, Sab AB46, Sac AC46, Sbb AA47, Sbc AB47, Scc AC47, Say AA48, Sby AB48, Scy AC48
-    ws["AA50"] = (
-        "=AA46*(AA47*AC47-AB47*AB47)"
-        "-AB46*(AB46*AC47-AC46*AB47)"
-        "+AC46*(AB46*AB47-AA47*AC46)"
+    section(ws, 19, "三、鏡頭畸變座標")
+    ws.merge_cells("A20:D21")
+    ws["A20"] = (
+        "不要在這裡填視場角或 k。到「畸變座標」貼上半像高（mm）對半視場角（度），至少超過 1000 點，建議 10000。"
+        "範例已放 10000 點。曲線用 u = 半像高 / 表中最大半像高，擬合 tan(θ) = d1·u + d3·u³ + d5·u⁵ + d7·u⁷ + d9·u⁹。"
+        "水平視場角 = 2 × 這條曲線在「水平半像高」處的角度。"
     )
-    ws["AA51"] = (
-        '=IF(ABS(AA50)<0.000000000000000001,0,(AA48*(AA47*AC47-AB47*AB47)'
-        '-AB46*(AB48*AC47-AB47*AC48)+AC46*(AB48*AB47-AA47*AC48))/AA50)'
-    )
-    ws["AB51"] = (
-        '=IF(ABS(AA50)<0.000000000000000001,0,(AA46*(AB48*AC47-AB47*AC48)'
-        '-AA48*(AB46*AC47-AB47*AC46)+AC46*(AB46*AC48-AB48*AC46))/AA50)'
-    )
-    ws["AC51"] = (
-        '=IF(ABS(AA50)<0.000000000000000001,0,(AA46*(AA47*AC48-AB48*AB47)'
-        '-AB46*(AB46*AC48-AB48*AC46)+AA48*(AB46*AB47-AA47*AC46))/AA50)'
-    )
-    add_name(wb, "FitD2", "'參數'!$AA$51")
-    add_name(wb, "FitD4", "'參數'!$AB$51")
-    add_name(wb, "FitD6", "'參數'!$AC$51")
+    ws["A20"].alignment = Alignment(wrap_text=True, vertical="center")
+    ws["A20"].font = font()
+    ws.row_dimensions[20].height = 22
+    ws.row_dimensions[21].height = 36
 
-    section(ws, 46, "四、中望 CAD")
-    label(ws, 47, "擬合公差", "mm", "取樣點到直線或圓弧的最大允許距離")
-    ws["B47"] = 0.02
-    apply_input(ws["B47"], "小於此值就用一條 LINE 或 ARC。超過就拆成更多 ARC，最後才用折線。")
-    ws["B47"].number_format = "0.000"
-    add_name(wb, "CadTol", "'參數'!$B$47")
+    section(ws, 23, "四、中望 CAD")
+    label(ws, 24, "擬合公差", "mm", "取樣點到直線或圓弧的最大允許距離")
+    ws["B24"] = 0.02
+    apply_input(ws["B24"], "小於此值就用一條 LINE 或 ARC。超過就拆成更多 ARC，最後才用折線。")
+    ws["B24"].number_format = "0.000"
+    add_name(wb, "CadTol", "'參數'!$B$24")
 
-    label(ws, 48, "座標縮放", "", "1 = 公厘。圖紙若用公尺，填 0.001")
-    ws["B48"] = 1
-    apply_input(ws["B48"])
-    ws["B48"].number_format = "0.0000"
-    add_name(wb, "CadScale", "'參數'!$B$48")
+    label(ws, 25, "座標縮放", "", "1 = 公厘。圖紙若用公尺，填 0.001")
+    ws["B25"] = 1
+    apply_input(ws["B25"])
+    ws["B25"].number_format = "0.0000"
+    add_name(wb, "CadScale", "'參數'!$B$25")
 
-    # Derived values in column I/J
+    h_center = "SQRT(CenterX^2+CenterY^2)"
+    tan_center = chart_radius_factor(h_center)
     derived = [
         (5, "Sensor 寬", "SensW", "=PixW*PixUm/1000", "0.000", "mm"),
         (6, "Sensor 高", "SensH", "=PixH*PixUm/1000", "0.000", "mm"),
-        (7, "使用中的焦距", "FocalUse",
-         '=IF(FocalSrc="由水平視場角",IF(HFovDeg<=0,NA(),(SensW/2)/TAN(RADIANS(HFovDeg/2))),FocalMm)',
-         "0.000", "mm"),
-        (8, "圖卡/sensor 倍率", "ObjScale",
-         '=IF(OR(FocalUse<=0,TestDist<=0),NA(),IF(AND(ProjModel="薄透鏡",TestDist<=FocalUse),NA(),IF(ProjModel="遠距近似",TestDist/FocalUse,(TestDist-FocalUse)/FocalUse)))',
-         "0.000", "mm/mm"),
-        (9, "半對角", "HalfDiag", "=SQRT((SensW/2)^2+(SensH/2)^2)", "0.000", "mm"),
-        (10, "1.0 視場長度", "FieldR",
+        (7, "畸變點數", "NptsOut", "=Npts", "0", "點"),
+        (8, "曲線最大半像高", "HscaleOut", "=Hscale", "0.000", "mm"),
+        (9, "近軸焦距", "FocalUse", '=IF(OR(Coef1<=0,Hscale<=0),NA(),Hscale/Coef1)', "0.000", "mm"),
+        (10, "水平視場角", "HFovOut",
+         f'=IF(OR(Hscale<=0,SensW<=0),NA(),IF({chart_radius_factor("SensW/2")}<=0,NA(),2*DEGREES(ATAN({chart_radius_factor("SensW/2")}))))',
+         "0.000", "度"),
+        (11, "垂直視場角", "VFovOut",
+         f'=IF(OR(Hscale<=0,SensH<=0),NA(),IF({chart_radius_factor("SensH/2")}<=0,NA(),2*DEGREES(ATAN({chart_radius_factor("SensH/2")}))))',
+         "0.000", "度"),
+        (12, "對角視場角", "DFovOut",
+         f'=IF(OR(Hscale<=0,HalfDiag<=0),NA(),IF({chart_radius_factor("HalfDiag")}<=0,NA(),2*DEGREES(ATAN({chart_radius_factor("HalfDiag")}))))',
+         "0.000", "度"),
+        (13, "曲線角度 RMSE", "FitRmseOut", "=FitRmse", "0.000000", "度"),
+        (14, "半對角", "HalfDiag", "=SQRT((SensW/2)^2+(SensH/2)^2)", "0.000", "mm"),
+        (15, "1.0 視場長度", "FieldR",
          '=IF(FieldRef="水平半寬",SensW/2,IF(FieldRef="垂直半高",SensH/2,HalfDiag))',
          "0.000", "mm"),
-        (11, "主點 X", "PrinX", "=PrinPx*PixUm/1000", "0.000", "mm"),
-        (12, "主點 Y", "PrinY", "=PrinPy*PixUm/1000", "0.000", "mm"),
-        (13, "方塊中心 X", "CenterX", "=PrinX+FieldPos*FieldR*COS(RADIANS(AzimuthDeg))", "0.000", "mm"),
-        (14, "方塊中心 Y", "CenterY", "=PrinY+FieldPos*FieldR*SIN(RADIANS(AzimuthDeg))", "0.000", "mm"),
-        (15, "方塊邊長", "SideMm", "=EdgePx*PixUm/1000", "0.0000", "mm"),
-        (16, "cos(傾斜)", "CosT", "=COS(RADIANS(TiltDeg))", "0.000000", ""),
-        (17, "sin(傾斜)", "SinT", "=SIN(RADIANS(TiltDeg))", "0.000000", ""),
-        (18, "半邊長", "HalfSide", "=SideMm/2", "0.0000", "mm"),
-        (19, "外接半寬", "AabbHalf", "=HalfSide*(ABS(CosT)+ABS(SinT))", "0.0000", "mm"),
-        (20, "離水平/垂直", "BetaDeg",
+        (16, "主點 X", "PrinX", "=PrinPx*PixUm/1000", "0.000", "mm"),
+        (17, "主點 Y", "PrinY", "=PrinPy*PixUm/1000", "0.000", "mm"),
+        (18, "方塊中心 X", "CenterX", "=PrinX+FieldPos*FieldR*COS(RADIANS(AzimuthDeg))", "0.000", "mm"),
+        (19, "方塊中心 Y", "CenterY", "=PrinY+FieldPos*FieldR*SIN(RADIANS(AzimuthDeg))", "0.000", "mm"),
+        (20, "方塊邊長", "SideMm", "=EdgePx*PixUm/1000", "0.0000", "mm"),
+        (21, "離水平/垂直", "BetaDeg",
          "=MIN(MOD(ABS(TiltDeg),90),90-MOD(ABS(TiltDeg),90))", "0.00", "度"),
-        (21, "像素尺寸", "PixMm", "=PixUm/1000", "0.000000", "mm"),
-        (22, "邊到畫面邊緣", "ClearPx",
-         "=(MIN(SensW/2-ABS(CenterX)-AabbHalf,SensH/2-ABS(CenterY)-AabbHalf))/PixMm",
-         "0.0", "px"),
-        (29, "有效 k1", "EffK1",
-         '=IF(DistModel="Brown-Conrady",RadK1,UseD2/RcNorm^2)', "0.000000", ""),
-        (30, "有效 k2", "EffK2",
-         '=IF(DistModel="Brown-Conrady",RadK2,UseD4/RcNorm^4)', "0.000000", ""),
-        (31, "有效 k3", "EffK3",
-         '=IF(DistModel="Brown-Conrady",RadK3,UseD6/RcNorm^6)', "0.000000", ""),
-        (32, "有效 p1", "EffP1", '=IF(DistModel="Brown-Conrady",TanP1,0)', "0.000000", ""),
-        (33, "有效 p2", "EffP2", '=IF(DistModel="Brown-Conrady",TanP2,0)', "0.000000", ""),
-        (34, "半對角/焦距", "RcNorm", '=IF(FocalUse<=0,NA(),HalfDiag/FocalUse)', "0.000000", ""),
-        (35, "使用中的 D2", "UseD2", '=IF(DistModel="視場畸變表",FitD2,PolyD2)', "0.000000", ""),
-        (36, "使用中的 D4", "UseD4", '=IF(DistModel="視場畸變表",FitD4,PolyD4)', "0.000000", ""),
-        (37, "使用中的 D6", "UseD6", '=IF(DistModel="視場畸變表",FitD6,PolyD6)', "0.000000", ""),
+        (23, "圖卡中心 X", "ChartCx",
+         f'=IF(OR({h_center}<0.000000000001,Hscale<=0),0,TestDist*{tan_center}*CenterX/{h_center})',
+         "0.000", "mm"),
+        (24, "圖卡中心 Y", "ChartCy",
+         f'=IF(OR({h_center}<0.000000000001,Hscale<=0),0,TestDist*{tan_center}*CenterY/{h_center})',
+         "0.000", "mm"),
+        (25, "未變形圖卡中心 X", "IdealCx", "=IF(FocalUse<=0,NA(),TestDist*CenterX/FocalUse)", "0.000", "mm"),
+        (26, "未變形圖卡中心 Y", "IdealCy", "=IF(FocalUse<=0,NA(),TestDist*CenterY/FocalUse)", "0.000", "mm"),
+        (27, "預變形最大位移", "MaxDisp", f"=MAX(取樣!Q{SAMPLE_FIRST}:Q{SAMPLE_LAST})", "0.000", "mm"),
+        (28, "規則總判", "RuleCell", "=RuleAll", None, ""),
     ]
-    ws["I4"] = "算出來的位置與尺寸"
+    # HalfDiag is used by DFovOut above it. Excel allows forward named-range refs. OK.
+    ws["I4"] = "算出來的視場、位置與尺寸"
     ws["I4"].font = font(bold=True, color=NAVY)
     ws.merge_cells("I4:L4")
     for row, text, name, formula, fmt, unit in derived:
@@ -474,9 +505,25 @@ def build_params(wb, ws):
         cell = ws.cell(row, 10, formula)
         apply_output(cell, fmt)
         ws.cell(row, 11, unit).font = font_small
+        if name not in ("NptsOut", "HscaleOut", "FitRmseOut", "RuleCell"):
+            add_name(wb, name, f"'參數'!$J${row}")
+
+    # Helpers used by the square. Kept named so the corner formulas stay readable.
+    helpers = [
+        (30, "cos(傾斜)", "CosT", "=COS(RADIANS(TiltDeg))", "0.000000"),
+        (31, "sin(傾斜)", "SinT", "=SIN(RADIANS(TiltDeg))", "0.000000"),
+        (32, "半邊長", "HalfSide", "=SideMm/2", "0.0000"),
+        (33, "外接半寬", "AabbHalf", "=HalfSide*(ABS(CosT)+ABS(SinT))", "0.0000"),
+        (34, "像素尺寸", "PixMm", "=PixUm/1000", "0.000000"),
+        (35, "邊到畫面邊緣", "ClearPx",
+         "=(MIN(SensW/2-ABS(CenterX)-AabbHalf,SensH/2-ABS(CenterY)-AabbHalf))/PixMm", "0.0"),
+    ]
+    for row, text, name, formula, fmt in helpers:
+        ws.cell(row, 9, text).font = font_label
+        cell = ws.cell(row, 10, formula)
+        apply_output(cell, fmt)
         add_name(wb, name, f"'參數'!$J${row}")
 
-    # Vertices of the straight square on the sensor. Order is counterclockwise from lower left.
     ws["I39"] = "Sensor 上的四個角（直的，尚未預變形）"
     ws["I39"].font = font(bold=True, color=NAVY)
     ws.merge_cells("I39:L39")
@@ -505,12 +552,6 @@ def build_params(wb, ws):
     ws["K46"].font = font_small
 
     ws["I48"] = "此方位建議最大視場"
-    # limX / limY and tMax
-    ws["J48"] = (
-        '=LET_PLACEHOLDER'
-    )
-    # Avoid LET. Compute with nested IF in one formula.
-    # tx = if abs(rx)<1e-12 then if abs(PrinX)<=limX then 1 else -1 else if rx>0 then (limX-PrinX)/rx else (-limX-PrinX)/rx
     limx = "(SensW/2-AabbHalf)"
     limy = "(SensH/2-AabbHalf)"
     rx = "(FieldR*COS(RADIANS(AzimuthDeg)))"
@@ -523,36 +564,45 @@ def build_params(wb, ws):
         f'IF(ABS({ry})<0.000000000001,IF(ABS(PrinY)<={limy},1,-1),'
         f'IF({ry}>0,({limy}-PrinY)/{ry},(-{limy}-PrinY)/{ry}))'
     )
-    ws["J48"] = f'=MAX(0,MIN(1,{tx},{ty}))'
+    ws["J48"] = f"=MAX(0,MIN(1,{tx},{ty}))"
     apply_output(ws["J48"], "0.000")
     add_name(wb, "FieldMax", "'參數'!$J$48")
     ws["K48"] = "0–1"
     ws["K48"].font = font_small
 
-    # Placeholders filled after iteration/fit exist: chart center, errors, rule, modes.
-    for row, text, name in [
-        (24, "圖卡中心 X", "ChartCx"),
-        (25, "圖卡中心 Y", "ChartCy"),
-        (26, "未變形圖卡中心 X", "IdealCx"),
-        (27, "未變形圖卡中心 Y", "IdealCy"),
-        (28, "預變形最大位移", "MaxDisp"),
-    ]:
-        ws.cell(row, 9, text).font = font_label
+    ws["I50"] = "四邊 CAD 模式"
+    ws["J50"] = '=擬合!B2&" / "&擬合!B3&" / "&擬合!B4&" / "&擬合!B5'
+    apply_output(ws["J50"])
 
-    ws["I23"] = "規則總判（詳見「規則」）"
-    ws["I23"].font = font_label
+    ws["I52"] = "tan(θ) 的奇次係數，u = 半像高 / 最大半像高"
+    ws["I52"].font = font(bold=True, color=NAVY)
+    ws.merge_cells("I52:L52")
+    for index, name in enumerate(COEF_NAMES):
+        row = 53 + index
+        power = POWERS[index]
+        ws.cell(row, 9, f"d{power}").font = font_label
+        ws.cell(row, 10, f"={name}")
+        apply_output(ws.cell(row, 10), "0.000000")
 
-    # dropdowns
+    ws["I59"] = "中心像素（左下為原點，Y 向上）"
+    ws["J59"] = "=CenterX/PixMm+PixW/2"
+    ws["K59"] = "=CenterY/PixMm+PixH/2"
+    apply_output(ws["J59"], "0.0")
+    apply_output(ws["K59"], "0.0")
+    ws["L59"] = "X , Y"
+    ws["L59"].font = font_small
+    ws["I60"] = "中心影像列（上為 0）"
+    ws["J60"] = "=PixH-K59"
+    apply_output(ws["J60"], "0.0")
+
     dv_ref = DataValidation(type="list", formula1='"對角,水平半寬,垂直半高"', allow_blank=False)
-    dv_src = DataValidation(type="list", formula1='"直接輸入焦距,由水平視場角"', allow_blank=False)
-    dv_proj = DataValidation(type="list", formula1='"薄透鏡,遠距近似"', allow_blank=False)
-    dv_dist = DataValidation(type="list", formula1='"Brown-Conrady,百分比多項式,視場畸變表"', allow_blank=False)
     dv_field = DataValidation(type="decimal", operator="between", formula1="0", formula2="1", allow_blank=False)
     dv_field.error = "視場要在 0 到 1"
     dv_field.errorTitle = "視場"
-    for dv in (dv_ref, dv_src, dv_proj, dv_dist, dv_field):
-        dv.add(ws["B10"] if dv is dv_ref else ws["B12"] if dv is dv_src else ws["B15"] if dv is dv_proj else ws["B25"] if dv is dv_dist else ws["B8"])
-        ws.add_data_validation(dv)
+    dv_ref.add(ws["B10"])
+    dv_field.add(ws["B8"])
+    ws.add_data_validation(dv_ref)
+    ws.add_data_validation(dv_field)
 
     ws.conditional_formatting.add("I1:K2", CellIsRule(operator="equal", formula=['"通過"'], fill=PatternFill("solid", fgColor="D5F5E3"), font=font(size=22, bold=True, color=GREEN)))
     ws.conditional_formatting.add("I1:K2", CellIsRule(operator="equal", formula=['"有警告"'], fill=PatternFill("solid", fgColor="FDEBD0"), font=font(size=22, bold=True, color=AMBER)))
@@ -561,7 +611,6 @@ def build_params(wb, ws):
     widths = {"A": 24, "B": 22, "C": 14, "D": 62, "E": 3, "F": 3, "G": 3, "H": 3, "I": 28, "J": 18, "K": 16, "L": 16}
     for col, width in widths.items():
         ws.column_dimensions[col].width = width
-    ws.auto_filter.ref = None
     ws.sheet_view.zoomScale = 110
     ws.oddHeader.left.text = "Imatest SFR pattern"
     ws.print_title_rows = "1:2"
@@ -569,80 +618,12 @@ def build_params(wb, ws):
     ws.sheet_properties.pageSetUpPr.fitToPage = True
 
 
-def link_param_outputs(ws):
-    xcol = iter_letter(N_ITER, OFFSETS["x"])
-    ycol = iter_letter(N_ITER, OFFSETS["y"])
-    ws["J23"] = "=RuleAll"
-    apply_output(ws["J23"])
-    ws["J24"] = f"={xcol_ref(xcol)}*FocalUse*ObjScale"
-    ws["J25"] = f"={ycol_ref(ycol)}*FocalUse*ObjScale"
-    # fix properly below
-    ws["J24"] = f"=迭代_勿改!{xcol}{CENTER_ROW}*FocalUse*ObjScale"
-    ws["J25"] = f"=迭代_勿改!{ycol}{CENTER_ROW}*FocalUse*ObjScale"
-    ws["J26"] = "=CenterX*ObjScale"
-    ws["J27"] = "=CenterY*ObjScale"
-    ws["J28"] = f"=MAX(取樣!Q{SAMPLE_FIRST}:Q{SAMPLE_LAST})"
-    for row, fmt in ((24, "0.000"), (25, "0.000"), (26, "0.000"), (27, "0.000"), (28, "0.000")):
-        apply_output(ws.cell(row, 10), fmt)
-    ws["K24"] = "mm"
-    ws["K25"] = "mm"
-    ws["K26"] = "mm"
-    ws["K27"] = "mm"
-    ws["K28"] = "mm"
-    for row in range(24, 29):
-        ws.cell(row, 11).font = font_small
-    add_name(ws.parent, "ChartCx", "'參數'!$J$24")
-    add_name(ws.parent, "ChartCy", "'參數'!$J$25")
-    add_name(ws.parent, "IdealCx", "'參數'!$J$26")
-    add_name(ws.parent, "IdealCy", "'參數'!$J$27")
-    add_name(ws.parent, "MaxDisp", "'參數'!$J$28")
-    ws["I50"] = "四邊 CAD 模式"
-    ws["J50"] = '=擬合!B2&" / "&擬合!B3&" / "&擬合!B4&" / "&擬合!B5'
-    apply_output(ws["J50"])
-    ws["I51"] = "反算最大誤差"
-    ws["J51"] = f"=MAX(取樣!P{SAMPLE_FIRST}:P{SAMPLE_LAST})"
-    apply_output(ws["J51"], "0.000000")
-    ws["K51"] = "mm"
-    ws["K51"].font = font_small
-    add_name(ws.parent, "MaxErr", "'參數'!$J$51")
-    ws["I52"] = "中心像素（左下為原點，Y 向上）"
-    ws["J52"] = '=CenterX/PixMm+PixW/2'
-    ws["K52"] = '=CenterY/PixMm+PixH/2'
-    apply_output(ws["J52"], "0.0")
-    apply_output(ws["K52"], "0.0")
-    ws["L52"] = "X , Y"
-    ws["L52"].font = font_small
-    ws["I53"] = "中心影像列（上為 0）"
-    ws["J53"] = "=PixH-K52"
-    apply_output(ws["J53"], "0.0")
-
-
-def xcol_ref(xcol):
-    return xcol
-
-
-def ycol_ref(ycol):
-    return ycol
-
-
-def build_iteration(ws):
-    ws.sheet_properties.tabColor = "AEB6BF"
-    ws["A1"] = "xd"
-    ws["B1"] = "yd"
-    write_newton_row(ws, CENTER_ROW, "=CenterX/FocalUse", "=CenterY/FocalUse")
-    for edge in range(1, N_EDGE + 1):
-        for i in range(N_SAMP):
-            row = sample_row(edge, i)
-            write_newton_row(ws, row, f"=取樣!F{row}", f"=取樣!G{row}")
-    ws.sheet_view.zoomScale = 80
-
-
 def build_samples(ws):
     ws.sheet_properties.tabColor = "5D6D7E"
     headers = [
-        "邊", "點", "t", "sensor X mm", "sensor Y mm", "xd", "yd", "xu", "yu",
-        "圖卡 X mm", "圖卡 Y mm", "未變形 X", "未變形 Y", "正向 xd", "正向 yd",
-        "反算誤差 mm", "預變形位移 mm", "整邊弦高", "單弧誤差", "四段弧誤差",
+        "邊", "點", "t", "sensor X mm", "sensor Y mm", "像高 h mm", "u", "tanθ", "θ 度",
+        "圖卡 X mm", "圖卡 Y mm", "未變形 X", "未變形 Y", "", "", "",
+        "預變形位移 mm", "整邊弦高", "單弧誤差", "四段弧誤差",
         "八段弧誤差", "四段弦高", "八段弦高", "折線拱高估計",
     ]
     for c, h in enumerate(headers, 1):
@@ -652,9 +633,6 @@ def build_samples(ws):
         cell.alignment = center
     ws.auto_filter.ref = f"A1:X{SAMPLE_LAST}"
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:X{SAMPLE_LAST}"
-    xfin = f"迭代_勿改!{iter_letter(N_ITER, OFFSETS['x'])}"
-    yfin = f"迭代_勿改!{iter_letter(N_ITER, OFFSETS['y'])}"
     for edge in range(1, N_EDGE + 1):
         row0 = sample_row(edge, 0)
         row1 = sample_row(edge, LAST_I)
@@ -665,22 +643,14 @@ def build_samples(ws):
             ws.cell(row, 3, f"=B{row}/{LAST_I}")
             ws.cell(row, 4, f"=INDEX(CornX,A{row})*(1-C{row})+INDEX(CornX,MOD(A{row},4)+1)*C{row}")
             ws.cell(row, 5, f"=INDEX(CornY,A{row})*(1-C{row})+INDEX(CornY,MOD(A{row},4)+1)*C{row}")
-            ws.cell(row, 6, f"=D{row}/FocalUse")
-            ws.cell(row, 7, f"=E{row}/FocalUse")
-            ws.cell(row, 8, f"={xfin}{row}")
-            ws.cell(row, 9, f"={yfin}{row}")
-            ws.cell(row, 10, f"=H{row}*FocalUse*ObjScale")
-            ws.cell(row, 11, f"=I{row}*FocalUse*ObjScale")
-            ws.cell(row, 12, f"=D{row}*ObjScale")
-            ws.cell(row, 13, f"=E{row}*ObjScale")
-            # forward distort of xu,yu
-            ws.cell(row, 14,
-                    f"=H{row}*(1+EffK1*(H{row}^2+I{row}^2)+EffK2*(H{row}^2+I{row}^2)^2+EffK3*(H{row}^2+I{row}^2)^3)"
-                    f"+2*EffP1*H{row}*I{row}+EffP2*((H{row}^2+I{row}^2)+2*H{row}^2)")
-            ws.cell(row, 15,
-                    f"=I{row}*(1+EffK1*(H{row}^2+I{row}^2)+EffK2*(H{row}^2+I{row}^2)^2+EffK3*(H{row}^2+I{row}^2)^3)"
-                    f"+EffP1*((H{row}^2+I{row}^2)+2*I{row}^2)+2*EffP2*H{row}*I{row}")
-            ws.cell(row, 16, f"=SQRT((N{row}-F{row})^2+(O{row}-G{row})^2)*FocalUse")
+            ws.cell(row, 6, f"=SQRT(D{row}^2+E{row}^2)")
+            ws.cell(row, 7, f"=IF(Hscale<=0,NA(),F{row}/Hscale)")
+            ws.cell(row, 8, f"={tan_poly(f'G{row}')}")
+            ws.cell(row, 9, f"=IF(H{row}<=0,NA(),DEGREES(ATAN(H{row})))")
+            ws.cell(row, 10, f"=IF(F{row}<0.000000000001,0,TestDist*H{row}*D{row}/F{row})")
+            ws.cell(row, 11, f"=IF(F{row}<0.000000000001,0,TestDist*H{row}*E{row}/F{row})")
+            ws.cell(row, 12, f"=IF(OR(NOT(ISNUMBER(FocalUse)),FocalUse<=0),NA(),TestDist*D{row}/FocalUse)")
+            ws.cell(row, 13, f"=IF(OR(NOT(ISNUMBER(FocalUse)),FocalUse<=0),NA(),TestDist*E{row}/FocalUse)")
             ws.cell(row, 17, f"=SQRT((J{row}-L{row})^2+(K{row}-M{row})^2)")
             # deviations in chart mm
             x, y = f"J{row}", f"K{row}"
@@ -868,10 +838,10 @@ def build_rules(ws):
          '=PixW&" × "&PixH&" px，"&TEXT(PixUm,"0.000")&" μm"',
          '=IF(AND(PixW>=100,PixH>=100,PixUm>0),"符合","不符合")',
          "需要知道 sensor 的實際寬高，邊長才換得成公厘。"),
-        (6, "測試距離與焦距",
-         '=TEXT(TestDist,"0.00")&" mm，焦距 "&TEXT(FocalUse,"0.000")&" mm"',
-         '=IF(AND(ISNUMBER(FocalUse),ISNUMBER(ObjScale),TestDist>FocalUse,FocalUse>0),"符合","不符合")',
-         "圖卡要在前焦點之外。實體尺寸 = sensor 尺寸 × (距離−焦距)/焦距。"),
+        (6, "測試距離",
+         '=TEXT(TestDist,"0.00")&" mm，近軸焦距 "&TEXT(FocalUse,"0.000")&" mm"',
+         '=IF(AND(ISNUMBER(TestDist),TestDist>0,ISNUMBER(FocalUse),FocalUse>0),"符合","不符合")',
+         "測試距離是入瞳到圖卡。圖卡半徑 = 距離 × tan(半視場角)。近軸焦距由畸變曲線在光軸附近的斜率算出。"),
         (7, "視場位置",
          '=TEXT(FieldPos,"0.00")&" @ "&TEXT(AzimuthDeg,"0.0")&"°，基準 "&FieldRef',
          '=IF(AND(FieldPos>=0,FieldPos<=1),"符合","不符合")',
@@ -896,15 +866,27 @@ def build_rules(ws):
          '=TEXT(ClearPx,"0.0")&" px（此方位最大視場 "&TEXT(FieldMax,"0.00")&"）"',
          '=IF(ClearPx<0,"不符合","符合")',
          "四條邊的外接矩形要落在 sensor 裡面，否則這條邊拍不到。"),
-        (13, "畸變反算有沒有收斂",
-         '=TEXT(MaxErr*1000,"0.000")&" μm"',
-         '=IF(MaxErr<=0.01*PixMm,"符合",IF(MaxErr<=0.25*PixMm,"警告","不符合"))',
-         "把圖卡點再正向畸變一次，要回到原本的直邊。誤差應遠小於 0.01 像素。"),
-        (14, "圖卡座標是有限數",
-         '=ObjScale',
-         '=IF(AND(ISNUMBER(ObjScale),COUNT(取樣!J2:J133)=132,COUNT(取樣!K2:K133)=132),"符合","不符合")',
-         "距離必須大於焦距，k 也不能讓反算發散。"),
-        (15, "折線剩餘拱高",
+        (13, "畸變座標點數",
+         '=TEXT(Npts,"0")&" 點"',
+         '=IF(Npts<1000,"不符合",IF(Npts<10000,"警告","符合建議"))',
+         "半像高對半視場角至少要超過 1000 點。建議貼到 10000 點，曲線才穩。"),
+        (14, "曲線蓋得住 sensor",
+         '=TEXT(Hscale,"0.000")&" mm，半對角 "&TEXT(HalfDiag,"0.000")&" mm"',
+         '=IF(AND(ISNUMBER(Hscale),Hscale+0.000000001>=HalfDiag,Hscale+0.000000001>=MAX(取樣!F2:F133)),"符合","不符合")',
+         "表中最大半像高要蓋過 sensor 半對角，也要蓋過這顆方塊。否則視場角和角落都是外推。"),
+        (15, "曲線擬合殘差",
+         '=TEXT(FitRmse,"0.000000")&" °"',
+         '=IF(NOT(ISNUMBER(FitRmse)),"不符合",IF(FitRmse<=0.01,"符合",IF(FitRmse<=0.05,"警告","不符合")))',
+         "tan(θ) 對 u 的 1、3、5、7、9 次擬合，再換回角度。RMSE 超過 0.05° 就不要用這條曲線畫邊。"),
+        (16, "水平視場角",
+         '=TEXT(HFovOut,"0.000")&" °（垂直 "&TEXT(VFovOut,"0.000")&"°，對角 "&TEXT(DFovOut,"0.000")&"°）"',
+         '=IF(AND(ISNUMBER(HFovOut),HFovOut>0,HFovOut<180,ISNUMBER(VFovOut),ISNUMBER(DFovOut)),"符合","不符合")',
+         "水平視場角 = 2 × 曲線在水平半像高處的角度。水平半像高 = 水平像素 × 像素尺寸 / 2。"),
+        (17, "圖卡座標是有限數",
+         '=TEXT(TestDist,"0.00")&" mm"',
+         '=IF(AND(ISNUMBER(ChartCx),ISNUMBER(ChartCy),COUNT(取樣!J2:J133)=132,COUNT(取樣!K2:K133)=132),"符合","不符合")',
+         "半視場角的正切要是有限正數，圖卡座標才畫得出來。"),
+        (18, "折線剩餘拱高",
          '=TEXT(MAX(擬合!I2:I5),"0.0000")&" mm"',
          '=IF(COUNTIF(擬合!B2:B5,"POLY")=0,"符合",IF(MAX(擬合!I2:I5)<=CadTol,"符合","警告"))',
          "能用 LINE 或 ARC 就不用折線。真的用折線時，相鄰取樣點之間的估計拱高應小於公差。"),
@@ -924,9 +906,9 @@ def build_rules(ws):
         ws.row_dimensions[row].height = 36
 
     ws["G4"] = "不符合"
-    ws["H4"] = '=COUNTIF(C5:C15,"不符合")'
+    ws["H4"] = '=COUNTIF(C5:C18,"不符合")'
     ws["G5"] = "警告"
-    ws["H5"] = '=COUNTIF(C5:C15,"警告")'
+    ws["H5"] = '=COUNTIF(C5:C18,"警告")'
     ws["G6"] = "總結果"
     ws["H6"] = '=IF(H4>0,"不符合",IF(H5>0,"有警告","通過"))'
     add_name(ws.parent, "RuleAll", "'規則'!$H$6")
@@ -934,9 +916,9 @@ def build_rules(ws):
         ws.cell(row, 7).font = font_small
         apply_output(ws.cell(row, 8))
 
-    ws.conditional_formatting.add("C5:C15", CellIsRule(operator="equal", formula=['"不符合"'], fill=PatternFill("solid", fgColor="FADBD8"), font=font(bold=True, color=RED)))
-    ws.conditional_formatting.add("C5:C15", CellIsRule(operator="equal", formula=['"警告"'], fill=PatternFill("solid", fgColor="FDEBD0"), font=font(bold=True, color=AMBER)))
-    ws.conditional_formatting.add("C5:C15", FormulaRule(formula=['LEFT(C5,2)="符合"'], fill=PatternFill("solid", fgColor="D5F5E3"), font=font(bold=True, color=GREEN)))
+    ws.conditional_formatting.add("C5:C18", CellIsRule(operator="equal", formula=['"不符合"'], fill=PatternFill("solid", fgColor="FADBD8"), font=font(bold=True, color=RED)))
+    ws.conditional_formatting.add("C5:C18", CellIsRule(operator="equal", formula=['"警告"'], fill=PatternFill("solid", fgColor="FDEBD0"), font=font(bold=True, color=AMBER)))
+    ws.conditional_formatting.add("C5:C18", FormulaRule(formula=['LEFT(C5,2)="符合"'], fill=PatternFill("solid", fgColor="D5F5E3"), font=font(bold=True, color=GREEN)))
     ws.conditional_formatting.add("H1:I2", CellIsRule(operator="equal", formula=['"通過"'], fill=PatternFill("solid", fgColor="D5F5E3"), font=font(size=22, bold=True, color=GREEN)))
     ws.conditional_formatting.add("H1:I2", CellIsRule(operator="equal", formula=['"有警告"'], fill=PatternFill("solid", fgColor="FDEBD0"), font=font(size=22, bold=True, color=AMBER)))
     ws.conditional_formatting.add("H1:I2", CellIsRule(operator="equal", formula=['"不符合"'], fill=PatternFill("solid", fgColor="FADBD8"), font=font(size=22, bold=True, color=RED)))
@@ -945,7 +927,8 @@ def build_rules(ws):
     ws["A19"] = (
         "方塊四邊就是 SFR 的斜邊：兩條接近垂直、兩條接近水平，和 SFRplus / eSFR 的斜方塊相同。"
         "傾斜 5° 時，四邊都會離開水平、垂直和 45°。"
-        "預變形只發生在圖卡上。拍進 sensor 之後，這四邊應是直的，角度就是你填的傾斜角。"
+        "預變形只發生在圖卡上：半徑 = 測試距離 × tan(θ)，θ 由半像高對半視場角的曲線讀出。"
+        "拍進 sensor 之後，這四邊應是直的，角度就是你填的傾斜角。"
     )
     ws["A19"].alignment = Alignment(wrap_text=True, vertical="top")
     ws["A19"].font = font()
@@ -1008,8 +991,9 @@ def build_script(ws):
         row += 1
     dynamic = [
         f'="; tilt_deg="&{num("TiltDeg",4)}&" field="&{num("FieldPos",4)}&" azimuth_deg="&{num("AzimuthDeg",2)}',
-        f'="; focal_mm="&{num("FocalUse",4)}&" distance_mm="&{num("TestDist",2)}&" edge_px="&{num("EdgePx",2)}',
-        f'="; model="&DistModel&" k1="&{num("EffK1",6)}&" k2="&{num("EffK2",6)}&" k3="&{num("EffK3",6)}',
+        f'="; hfov_deg="&{num("HFovOut",4)}&" vfov_deg="&{num("VFovOut",4)}&" dfov_deg="&{num("DFovOut",4)}',
+        f'="; paraxial_f_mm="&{num("FocalUse",4)}&" distance_mm="&{num("TestDist",2)}&" edge_px="&{num("EdgePx",2)}',
+        f'="; distortion_points="&{num("Npts",0)}&" h_scale_mm="&{num("Hscale",4)}&" fit_rmse_deg="&{num("FitRmse",6)}',
         f'="; scale="&{num("CadScale",6)}&" tolerance_mm="&{num("CadTol",4)}',
     ]
     for formula in dynamic:
@@ -1157,7 +1141,7 @@ def build_preview(ws, ws_s):
     ws["A2"].font = font_small
     ws["A2"].alignment = left_align
     ws.merge_cells("A3:G3")
-    ws["A3"] = '="模式 "&擬合!B2&" / "&擬合!B3&" / "&擬合!B4&" / "&擬合!B5&"    預變形最大位移 "&TEXT(MaxDisp,"0.00")&" mm    反算誤差 "&TEXT(MaxErr*1000,"0.000")&" μm"'
+    ws["A3"] = '="模式 "&擬合!B2&" / "&擬合!B3&" / "&擬合!B4&" / "&擬合!B5&"    水平視場 "&TEXT(HFovOut,"0.000")&"°    預變形最大位移 "&TEXT(MaxDisp,"0.00")&" mm    曲線 RMSE "&TEXT(FitRmse,"0.0000")&"°"'
     ws["A3"].font = font(bold=True, color=NAVY)
 
     # Sensor rectangle
@@ -1244,14 +1228,16 @@ def build_help(ws):
         ("1. 傾斜角", True, 16),
         ("方塊相對 sensor 水平軸旋轉。ISO 12233 常用 5° 或 5.71°（arctan 0.1）。Imatest 要求離開最近的水平、垂直、45° 至少約 2°，3°–7° 最合適。四邊會同時得到接近水平與接近垂直的 SFR。", False, 12),
         ("", False, 8),
-        ("2. 預變形", True, 16),
-        ("先把想出現在 sensor 上的直邊寫下來，再用畸變模型反算「什麼樣的入射方向，經過這個鏡頭之後會落在這條直邊上」，最後用測試距離投影到圖卡。Brown-Conrady 與 OpenCV 相同：xd = xu·(1+k1 r²+k2 r⁴+k3 r⁶)+切向，r = 像高/焦距。k1<0 是桶形，圖卡會預彎成枕形。百分比多項式與視場表的畸變%和 Zemax 同號，負值是桶形。三種模型不要同時當成兩套畸變疊加；切換模型即可。", False, 12),
+        ("2. 畸變座標與水平視場角", True, 16),
+        ("水平視場角不是輸入。到「畸變座標」貼兩欄：A 半像高（mm，主點到該視場的距離），B 半視場角（度，物方）。點數要超過 1000，建議 10000。空白列會略過。表內最大半像高記成 h_scale，u = 半像高 / h_scale，擬合 tan(θ) = d1·u + d3·u³ + d5·u⁵ + d7·u⁷ + d9·u⁹。近軸焦距 = h_scale / d1。水平半像高 = 水平像素 × 像素尺寸 / 2，代入曲線得到半角，乘 2 就是水平視場角。垂直、對角視場角用同樣方法。", False, 12),
+        ("", False, 8),
+        ("範例 10000 點是一條桶形曲線，只為了打開檔就能看到預彎的 ARC。請用自己的量測整欄蓋掉。同一條半像高，桶形鏡頭的半視場角會比近軸更大，圖卡上的邊會被推離光軸，邊的中段相對兩端靠近光軸。", False, 12),
         ("", False, 8),
         ("3. 大小與位置", True, 16),
-        ("視場 0 在主點，1 在基準邊緣。基準選「對角」時，1 就是 sensor 角落，方位角 45° / 135° / 225° / 315° 對應四個角。邊長是這條邊在 sensor 上要佔的像素。像素尺寸和測試距離、焦距一起把它換成圖卡上的公厘。沒有焦距就選「由水平視場角」，但那個焦距不要再和很大的 k 重複計算。薄透鏡倍率是 (距離−焦距)/焦距。", False, 12),
+        ("視場 0 在主點，1 在基準邊緣。基準選「對角」時，1 就是 sensor 角落。方塊在 sensor 上先擺成直的。圖卡上同一點的半徑 = 測試距離 × tan(θ(h))，方向與 sensor 上相同。測試距離是入瞳（節點）到圖卡，不是 (距離−焦距)/焦距。未變形的對照線用近軸焦距：半徑 = 測試距離 × h / f。", False, 12),
         ("", False, 8),
         ("4. Imatest 規則（這張表會擋）", True, 16),
-        ("只看邊線。傾斜角要離開 0°、90°、45°，建議 3°–7°。邊長建議 80–300 px。四條邊要落在 sensor 裡面。不檢查亮暗或對比，因為這裡沒有填色。", False, 12),
+        ("只看邊線。傾斜角要離開 0°、90°、45°，建議 3°–7°。邊長建議 80–300 px。四條邊要落在 sensor 裡面。畸變表要超過 1000 點並蓋過 sensor 半對角。不檢查亮暗或對比，因為這裡沒有填色。", False, 12),
         ("", False, 8),
         ("5. 中望 CAD", True, 16),
         ("指令是 _.LINE 與 _.ARC。三點 ARC 的順序是起點、弧上中點、終點。原點請放在光軸與圖卡的交點，單位與「座標縮放」一致，預設公厘。公差內能用一條直線就用 LINE，否則用 ARC；彎得更厲害就拆成 4 段或 8 段，仍不夠才用 33 點折線。每一邊的點都在「座標」工作表。", False, 12),
@@ -1262,7 +1248,7 @@ def build_help(ws):
         ws.cell(i, 1, text)
         ws.cell(i, 1).font = font(size=size, bold=title, color=NAVY if title else INK)
         ws.cell(i, 1).alignment = Alignment(wrap_text=True, vertical="center")
-        ws.row_dimensions[i].height = 28 if title else (48 if len(text) > 80 else 18)
+        ws.row_dimensions[i].height = 28 if title else (18 if len(text) < 40 else min(108, 32 + len(text) // 28 * 12))
     ws.page_setup.orientation = "portrait"
     ws.page_setup.fitToPage = True
     ws.page_setup.fitToWidth = 1

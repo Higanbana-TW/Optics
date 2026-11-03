@@ -227,7 +227,10 @@ def main():
     assert_close(cmds[-1][3][0], cmds[0][1][0], 1e-6, "close x")
     assert_close(cmds[-1][3][1], cmds[0][1][1], 1e-6, "close y")
     assert "hfov_deg=" in script
-    say(f"SCR has 4 terminated ARC commands, {len(script.splitlines())} lines")
+    assert script.endswith("\n")
+    closing = script.strip().splitlines()[-1]
+    assert closing == f"{cmds[0][1][0]:.6f},{cmds[0][1][1]:.6f}"
+    say(f"SCR has 4 terminated ARC commands, {len(script.splitlines())} lines, and ends on the return to the first corner")
 
     judgements = [(book.get("規則", f"A{r}"), book.get("規則", f"C{r}")) for r in range(5, 19)]
     for name, judge in judgements:

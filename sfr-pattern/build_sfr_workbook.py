@@ -967,8 +967,9 @@ def build_script(ws):
         "4. _.LINE 與 _.ARC 在中文介面也是英文指令，不用改成「直線」。\n"
         "5. 原點是光軸打在圖卡上的位置，+X 向右，+Y 向上，預設單位公厘。\n"
         "6. LINE 後面的空白行是故意的，用來結束畫線。不要刪。\n"
-        "7. 改了黃底參數後，這個儲存格會重算，請重新複製。\n"
-        "8. 指令用 & 串接，Excel 2016 以前也能算。"
+        "7. 第四邊的最後一個座標就是回到第一個角。這一行後面有換行，中望才會自己畫完，不用再點。\n"
+        "8. 改了黃底參數後，這個儲存格會重算，請重新複製。\n"
+        "9. 指令用 & 串接，Excel 2016 以前也能算。"
     )
     ws["A2"].alignment = Alignment(wrap_text=True, vertical="top")
     ws["A2"].font = font(size=11)
@@ -1089,7 +1090,11 @@ def build_script(ws):
             f'{join_range(*ranges["POLY"])}))))'
         )
         parts.append(choice)
-    ws["B2"] = "=" + '&CHAR(10)&'.join(parts)
+    # ARC blocks end on the closing coordinate. A script file does not execute
+    # its last line unless a newline follows it, so ZWCAD waits for that point.
+    # LINE blocks already end with the blank line that terminates _.LINE.
+    ws["AC1"] = "=" + "&CHAR(10)&".join(parts)
+    ws["B2"] = '=AC1&IF(RIGHT(AC1,1)=CHAR(10),"",CHAR(10))'
     ws["B2"].alignment = Alignment(wrap_text=True, vertical="top")
     ws["B2"].font = Font(name="Consolas", size=9, color=INK)
     ws["B2"].fill = PatternFill("solid", fgColor="F8F1E7")
@@ -1099,6 +1104,7 @@ def build_script(ws):
     ws.row_dimensions[2].height = 48
     ws.column_dimensions["AA"].hidden = True
     ws.column_dimensions["AB"].hidden = True
+    ws.column_dimensions["AC"].hidden = True
     ws.sheet_view.zoomScale = 110
     ws.page_setup.orientation = "landscape"
     ws.page_setup.fitToPage = True

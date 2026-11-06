@@ -123,14 +123,14 @@
 
     <label for="file-format">下載格式</label>
     <select id="file-format">
-      <option value="dxf">DXF（CAD，毫米單位）</option>
+      <option value="dxf">DXF（R12，毫米單位）</option>
       <option value="svg">SVG（向量圖片）</option>
     </select>
 
     <button id="download" type="button">下載 DXF 檔案</button>
     <p class="note">
-      DXF 使用毫米單位及填滿的 SOLID 圖元。列印時請選擇
-      「實際大小」或 100%，並關閉「符合頁面」。
+      DXF 是 AutoCAD R12 格式，單位為毫米，可用 ZWCAD 與 LibreCAD 開啟。
+      列印時請選擇「實際大小」或 100%，並關閉「符合頁面」。
     </p>
   </main>
 
@@ -138,12 +138,8 @@
     <div id="preview"></div>
   </section>
 
+  <script src="siemens_star.js"></script>
   <script>
-    const paperSizes = {
-      A4: [210, 297],
-      A3: [297, 420],
-    };
-
     const angleSelect = document.querySelector("#angle");
     const paperSelect = document.querySelector("#paper");
     const orientationSelect = document.querySelector("#orientation");
@@ -151,179 +147,16 @@
     const preview = document.querySelector("#preview");
     const downloadButton = document.querySelector("#download");
 
-    function format(value) {
-      return value.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
-    }
-
     function settings() {
-      const paper = paperSelect.value;
-      const angle = Number(angleSelect.value);
-      let [width, height] = paperSizes[paper];
-      if (orientationSelect.value === "landscape") {
-        [width, height] = [height, width];
-      }
-      return { paper, angle, width, height, orientation: orientationSelect.value };
-    }
-
-    function clipEdge(points, inside, intersection) {
-      const output = [];
-      for (let index = 0; index < points.length; index += 1) {
-        const current = points[index];
-        const previous = points[(index + points.length - 1) % points.length];
-        const currentInside = inside(current);
-        const previousInside = inside(previous);
-        if (currentInside) {
-          if (!previousInside) output.push(intersection(previous, current));
-          output.push(current);
-        } else if (previousInside) {
-          output.push(intersection(previous, current));
-        }
-      }
-      return output;
-    }
-
-    function clipToPage(points, width, height) {
-      let result = points;
-      result = clipEdge(
-        result,
-        point => point[0] >= 0,
-        (from, to) => {
-          const ratio = (0 - from[0]) / (to[0] - from[0]);
-          return [0, from[1] + ratio * (to[1] - from[1])];
-        }
+      return pageSettings(
+        angleSelect.value,
+        paperSelect.value,
+        orientationSelect.value
       );
-      result = clipEdge(
-        result,
-        point => point[0] <= width,
-        (from, to) => {
-          const ratio = (width - from[0]) / (to[0] - from[0]);
-          return [width, from[1] + ratio * (to[1] - from[1])];
-        }
-      );
-      result = clipEdge(
-        result,
-        point => point[1] >= 0,
-        (from, to) => {
-          const ratio = (0 - from[1]) / (to[1] - from[1]);
-          return [from[0] + ratio * (to[0] - from[0]), 0];
-        }
-      );
-      return clipEdge(
-        result,
-        point => point[1] <= height,
-        (from, to) => {
-          const ratio = (height - from[1]) / (to[1] - from[1]);
-          return [from[0] + ratio * (to[0] - from[0]), height];
-        }
-      );
-    }
-
-    function createBlackPolygons() {
-      const { angle, width, height } = settings();
-      const centerX = width / 2;
-      const centerY = height / 2;
-      const radius = Math.hypot(width, height) * 2;
-      const sectorCount = Math.round(360 / angle);
-      const polygons = [];
-
-      for (let index = 0; index < sectorCount; index += 2) {
-        const start = (-90 + index * angle) * Math.PI / 180;
-        const end = (-90 + (index + 1) * angle) * Math.PI / 180;
-        const triangle = [
-          [centerX, centerY],
-          [
-            centerX + radius * Math.cos(start),
-            centerY + radius * Math.sin(start),
-          ],
-          [
-            centerX + radius * Math.cos(end),
-            centerY + radius * Math.sin(end),
-          ],
-        ];
-        polygons.push(clipToPage(triangle, width, height));
-      }
-      return polygons;
-    }
-
-    function createSvg() {
-      const { paper, angle, width, height, orientation } = settings();
-      const centerX = width / 2;
-      const centerY = height / 2;
-      const radius = Math.hypot(width, height);
-      const sectorCount = Math.round(360 / angle);
-      const paths = [];
-
-      for (let index = 0; index < sectorCount; index += 2) {
-        const start = (-90 + index * angle) * Math.PI / 180;
-        const end = (-90 + (index + 1) * angle) * Math.PI / 180;
-        const x1 = centerX + radius * Math.cos(start);
-        const y1 = centerY + radius * Math.sin(start);
-        const x2 = centerX + radius * Math.cos(end);
-        const y2 = centerY + radius * Math.sin(end);
-        paths.push(
-          `<path d="M ${format(centerX)} ${format(centerY)} ` +
-          `L ${format(x1)} ${format(y1)} ` +
-          `A ${format(radius)} ${format(radius)} 0 0 1 ` +
-          `${format(x2)} ${format(y2)} Z"/>`
-        );
-      }
-
-      const title =
-        `Siemens star: ${angle} degree sectors, ${paper}, ${orientation}`;
-      return `<svg xmlns="http://www.w3.org/2000/svg" ` +
-        `width="${width}mm" height="${height}mm" ` +
-        `viewBox="0 0 ${width} ${height}" role="img" aria-label="${title}">` +
-        `<title>${title}</title>` +
-        `<defs><clipPath id="paper-clip">` +
-        `<rect width="${width}" height="${height}"/>` +
-        `</clipPath></defs>` +
-        `<rect width="${width}" height="${height}" fill="white"/>` +
-        `<g fill="black" shape-rendering="geometricPrecision" ` +
-        `clip-path="url(#paper-clip)">${paths.join("")}</g></svg>`;
-    }
-
-    function createDxf() {
-      const { width, height } = settings();
-      const lines = [
-        "0", "SECTION", "2", "HEADER",
-        "9", "$ACADVER", "1", "AC1015",
-        "9", "$INSUNITS", "70", "4",
-        "9", "$MEASUREMENT", "70", "1",
-        "9", "$EXTMIN", "10", "0", "20", "0", "30", "0",
-        "9", "$EXTMAX", "10", format(width), "20", format(height), "30", "0",
-        "0", "ENDSEC",
-        "0", "SECTION", "2", "TABLES",
-        "0", "TABLE", "2", "LAYER", "70", "1",
-        "0", "LAYER", "2", "SIEMENS_STAR", "70", "0",
-        "62", "7", "6", "CONTINUOUS",
-        "0", "ENDTAB", "0", "ENDSEC",
-        "0", "SECTION", "2", "ENTITIES",
-      ];
-
-      for (const polygon of createBlackPolygons()) {
-        for (let index = 1; index < polygon.length - 1; index += 1) {
-          const triangle = [polygon[0], polygon[index], polygon[index + 1]];
-          const dxfPoints = triangle.map(([x, y]) => [x, height - y]);
-          lines.push(
-            "0", "SOLID", "8", "SIEMENS_STAR", "62", "7",
-            "10", format(dxfPoints[0][0]),
-            "20", format(dxfPoints[0][1]), "30", "0",
-            "11", format(dxfPoints[1][0]),
-            "21", format(dxfPoints[1][1]), "31", "0",
-            "12", format(dxfPoints[2][0]),
-            "22", format(dxfPoints[2][1]), "32", "0",
-            "13", format(dxfPoints[2][0]),
-            "23", format(dxfPoints[2][1]), "33", "0"
-          );
-        }
-      }
-
-      lines.push("0", "ENDSEC", "0", "EOF");
-      return lines.join("\r\n") + "\r\n";
     }
 
     function updatePreview() {
-      preview.innerHTML = createSvg();
+      preview.innerHTML = createSvg(settings());
     }
 
     function triggerDownload(content, mimeType, filename) {
@@ -343,9 +176,9 @@
       const basename =
         `siemens_star_${paper.toLowerCase()}_${angle}deg_${orientation}`;
       if (formatSelect.value === "dxf") {
-        triggerDownload(createDxf(), "application/dxf", `${basename}.dxf`);
+        triggerDownload(createDxf(settings()), "application/dxf", `${basename}.dxf`);
       } else {
-        const svg = `<?xml version="1.0" encoding="UTF-8"?>\n${createSvg()}`;
+        const svg = `<?xml version="1.0" encoding="UTF-8"?>\n${createSvg(settings())}`;
         triggerDownload(svg, "image/svg+xml;charset=utf-8", `${basename}.svg`);
       }
     }

@@ -12,6 +12,7 @@ from openpyxl.chart import Reference, ScatterChart, Series
 from openpyxl.formatting.rule import FormulaRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.worksheet.datavalidation import DataValidation
+from openpyxl.worksheet.formula import ArrayFormula
 
 
 OUTPUT = Path(__file__).with_name("spherical_chart_predistortion.xlsx")
@@ -45,19 +46,54 @@ def section(ws, cell_range: str, title: str) -> None:
     cell.alignment = Alignment(horizontal="center")
 
 
+def add_tail_fit(ws) -> None:
+    """Fit θ = a + b·h + c·h² to the last 10 rows and expose its end slope."""
+    for row in range(TABLE_FIRST, TABLE_LAST + 1):
+        ws.cell(row, 34, f'=IF(B{row}="","",B{row})')
+        ws.cell(row, 35, f'=IF(B{row}="","",B{row}^2)')
+    ws.column_dimensions["AH"].hidden = True
+    ws.column_dimensions["AI"].hidden = True
+    ws["J15"] = "外推擬合"
+    ws["J15"].font = Font(bold=True, color=WHITE)
+    ws["J15"].fill = PatternFill("solid", fgColor=NAVY)
+    ws["K15"] = ArrayFormula(
+        ref="K15:M15",
+        text=(
+            '=IF($H$6<6,"",LINEST(OFFSET($A$19,$H$6-MIN(10,$H$6),0,MIN(10,$H$6),1),'
+            'OFFSET($AH$19,$H$6-MIN(10,$H$6),0,MIN(10,$H$6),2),TRUE,FALSE))'
+        ),
+    )
+    ws["N15"] = (
+        '=IF($H$6<6,'
+        '(INDEX($A$19:$A$2018,$H$6)-INDEX($A$19:$A$2018,$H$6-1))/'
+        '(INDEX($B$19:$B$2018,$H$6)-INDEX($B$19:$B$2018,$H$6-1)),'
+        '$L$15+2*$K$15*INDEX($B$19:$B$2018,$H$6))'
+    )
+    ws["O15"] = "degree/mm"
+    for col in ("K", "L", "M", "N"):
+        ws[f"{col}15"].number_format = "0.000000"
+        ws[f"{col}15"].fill = PatternFill("solid", fgColor=GREEN)
+
+
 def inverse_angle_formula(radius_cell: str) -> str:
     count = "$H$6"
     h_range = f"$B$19:$B${TABLE_LAST}"
     a_range = f"$A$19:$A${TABLE_LAST}"
     active_h = f"$B$19:INDEX({h_range},{count})"
     match = f"MATCH({radius_cell},{active_h},1)"
-    return (
-        f'=IF({radius_cell}<=$B$19,$A$19,'
-        f'IF({radius_cell}>=INDEX({h_range},{count}),INDEX({a_range},{count}),'
-        f'INDEX({a_range},{match})+'
-        f'({radius_cell}-INDEX({h_range},{match}))*'
+    inside = (
+        f'INDEX({a_range},{match})+({radius_cell}-INDEX({h_range},{match}))*'
         f'(INDEX({a_range},{match}+1)-INDEX({a_range},{match}))/'
-        f'(INDEX({h_range},{match}+1)-INDEX({h_range},{match}))))'
+        f'(INDEX({h_range},{match}+1)-INDEX({h_range},{match}))'
+    )
+    low = (
+        f'$A$19+({radius_cell}-$B$19)*(INDEX({a_range},2)-$A$19)/'
+        f'(INDEX({h_range},2)-$B$19)'
+    )
+    high = f'INDEX({a_range},{count})+({radius_cell}-INDEX({h_range},{count}))*$N$15'
+    return (
+        f'=IF({radius_cell}="","",IF({radius_cell}<=$B$19,{low},'
+        f'IF({radius_cell}>=INDEX({h_range},{count}),{high},{inside})))'
     )
 
 
@@ -248,7 +284,7 @@ def build_workbook() -> Workbook:
         (5, "輸出點數", "=11*2*5*4"),
         (6, "有效實像高列數", f"=COUNT(A{TABLE_FIRST}:A{TABLE_LAST})"),
         (7, "實像高表狀態", '=IF(H6<2,"錯誤：至少 2 列",IF(COUNTBLANK(A19:INDEX(A:A,18+H6))+COUNTBLANK(B19:INDEX(B:B,18+H6))>0,"錯誤：中間不可空白",IF(SUMPRODUCT(--(A20:INDEX(A:A,18+H6)<=A19:INDEX(A:A,17+H6)))>0,"錯誤：半視角須遞增",IF(SUMPRODUCT(--(B20:INDEX(B:B,18+H6)<=B19:INDEX(B:B,17+H6)))>0,"錯誤：實像高須遞增","OK"))))'),
-        (8, "目標範圍", f'=IF(MAX(P{OUTPUT_FIRST}:P{OUTPUT_LAST})>MAX(B19:B{TABLE_LAST}),"警告：超出實像高表","OK")'),
+        (8, "目標範圍", f'=IF(MAX(P{OUTPUT_FIRST}:P{OUTPUT_LAST})>MAX(B19:B{TABLE_LAST}),"OK，外推","OK")'),
         (9, "牆面交點", f'=IF(COUNTIF(W{OUTPUT_FIRST}:W{OUTPUT_LAST},"未相交")>0,"警告：有光線未打到牆","OK")'),
     ]
     for row, label, formula in checks:
@@ -405,7 +441,7 @@ def build_workbook() -> Workbook:
         ("牆面角度", "0° 表示圖卡位於入瞳正前方、與光軸垂直的平面，座標與平面預變形檔相同。正角度表示整面周邊牆繞光軸交點、朝圖卡方位傾斜。"),
         ("座標", "世界 X/Y/Z 是裝上斜牆後的三維位置，Z 以正向平面為 0。牆面 X/Y 是把斜牆轉回平面後的製造座標，可直接在 2D CAD 畫線。"),
         ("大角度", "半視角接近或超過 90° 時，正向平面沒有有限交點；只要傾斜後的牆面仍被該光線打到，就會得到有限座標。半視角超過 90° 的平面參考半徑留白。"),
-        ("實像高", "牆面角度不能取代鏡頭的實像高表。圖樣角點的 sensor 像高仍必須落在表內，否則外圍角度會被最後一筆取代。"),
+        ("實像高", "表內用相鄰點線性內插。超出最後一筆時，用尾端最多 10 筆擬合曲線的終點斜率繼續外推。牆面角度仍決定這條光線打在哪一面牆上。"),
         ("CAD", "中望CAD 使用世界 X,Y,Z 的 _3DPOLY。LibreCAD 只使用牆面展開的 2D 座標，並以 Paste commands 貼上。"),
     ]
     for row, (title, body) in enumerate(instructions, 3):
@@ -419,6 +455,7 @@ def build_workbook() -> Workbook:
         guide.cell(row, 1).border = guide.cell(row, 2).border = BORDER
         guide.row_dimensions[row].height = 62
 
+    add_tail_fit(ws)
     add_zwcad_sheet(wb)
     add_librecad_sheet(wb)
     wb.calculation.fullCalcOnLoad = True

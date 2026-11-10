@@ -11,6 +11,7 @@ from openpyxl.chart import Reference, ScatterChart, Series
 from openpyxl.formatting.rule import FormulaRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.worksheet.datavalidation import DataValidation
+from openpyxl.worksheet.formula import ArrayFormula
 
 
 OUTPUT = Path(__file__).with_name("lens_distortion_line_calculator.xlsx")
@@ -42,19 +43,56 @@ def section(ws, cell_range: str, title: str) -> None:
     cell.alignment = Alignment(horizontal="center")
 
 
+def add_tail_fit(ws) -> None:
+    """Fit θ = a + b·h + c·h² to the last 10 rows and expose its end slope."""
+    for row in range(TABLE_FIRST, TABLE_LAST + 1):
+        ws.cell(row, 34, f'=IF(B{row}="","",B{row})')
+        ws.cell(row, 35, f'=IF(B{row}="","",B{row}^2)')
+    ws.column_dimensions["AH"].hidden = True
+    ws.column_dimensions["AI"].hidden = True
+    ws["J15"] = "外推擬合"
+    ws["J15"].font = Font(bold=True, color=WHITE)
+    ws["J15"].fill = PatternFill("solid", fgColor=NAVY)
+    ws["K15"] = ArrayFormula(
+        ref="K15:M15",
+        text=(
+            '=IF($H$6<6,"",LINEST(OFFSET($A$19,$H$6-MIN(10,$H$6),0,MIN(10,$H$6),1),'
+            'OFFSET($AH$19,$H$6-MIN(10,$H$6),0,MIN(10,$H$6),2),TRUE,FALSE))'
+        ),
+    )
+    ws["N15"] = (
+        '=IF($H$6<6,'
+        '(INDEX($A$19:$A$2018,$H$6)-INDEX($A$19:$A$2018,$H$6-1))/'
+        '(INDEX($B$19:$B$2018,$H$6)-INDEX($B$19:$B$2018,$H$6-1)),'
+        '$L$15+2*$K$15*INDEX($B$19:$B$2018,$H$6))'
+    )
+    ws["O15"] = "degree/mm"
+    for col in ("K", "L", "M", "N"):
+        ws[f"{col}15"].number_format = "0.000000"
+        ws[f"{col}15"].fill = PatternFill("solid", fgColor=GREEN)
+
+
 def inverse_angle_formula(radius_cell: str) -> str:
     count = "$H$6"
     h_range = f"$B$19:$B${TABLE_LAST}"
     a_range = f"$A$19:$A${TABLE_LAST}"
     active_h = f"$B$19:INDEX({h_range},{count})"
     match = f"MATCH({radius_cell},{active_h},1)"
-    return (
-        f'=IF({radius_cell}<=$B$19,$A$19,'
-        f'IF({radius_cell}>=INDEX({h_range},{count}),INDEX({a_range},{count}),'
-        f'INDEX({a_range},{match})+'
-        f'({radius_cell}-INDEX({h_range},{match}))*'
+    inside = (
+        f'INDEX({a_range},{match})+({radius_cell}-INDEX({h_range},{match}))*'
         f'(INDEX({a_range},{match}+1)-INDEX({a_range},{match}))/'
-        f'(INDEX({h_range},{match}+1)-INDEX({h_range},{match}))))'
+        f'(INDEX({h_range},{match}+1)-INDEX({h_range},{match}))'
+    )
+    low = (
+        f'$A$19+({radius_cell}-$B$19)*(INDEX({a_range},2)-$A$19)/'
+        f'(INDEX({h_range},2)-$B$19)'
+    )
+    high = (
+        f'INDEX({a_range},{count})+({radius_cell}-INDEX({h_range},{count}))*$N$15'
+    )
+    return (
+        f'=IF({radius_cell}="","",IF({radius_cell}<=$B$19,{low},'
+        f'IF({radius_cell}>=INDEX({h_range},{count}),{high},{inside})))'
     )
 
 
@@ -64,13 +102,21 @@ def forward_radius_formula(angle_cell: str) -> str:
     h_range = f"$B$19:$B${TABLE_LAST}"
     active_a = f"$A$19:INDEX({a_range},{count})"
     match = f"MATCH({angle_cell},{active_a},1)"
-    return (
-        f'=IF({angle_cell}<=$A$19,$B$19,'
-        f'IF({angle_cell}>=INDEX({a_range},{count}),INDEX({h_range},{count}),'
-        f'INDEX({h_range},{match})+'
-        f'({angle_cell}-INDEX({a_range},{match}))*'
+    inside = (
+        f'INDEX({h_range},{match})+({angle_cell}-INDEX({a_range},{match}))*'
         f'(INDEX({h_range},{match}+1)-INDEX({h_range},{match}))/'
-        f'(INDEX({a_range},{match}+1)-INDEX({a_range},{match}))))'
+        f'(INDEX({a_range},{match}+1)-INDEX({a_range},{match}))'
+    )
+    low = (
+        f'$B$19+({angle_cell}-$A$19)*(INDEX({h_range},2)-$B$19)/'
+        f'(INDEX({a_range},2)-$A$19)'
+    )
+    high = (
+        f'INDEX({h_range},{count})+({angle_cell}-INDEX({a_range},{count}))/$N$15'
+    )
+    return (
+        f'=IF({angle_cell}="","",IF({angle_cell}<=$A$19,{low},'
+        f'IF({angle_cell}>=INDEX({a_range},{count}),{high},{inside})))'
     )
 
 
@@ -180,13 +226,13 @@ def add_mapping_formulas(ws, row: int) -> None:
     ws.cell(row, 15, f'=M{row}-$B$8/2')  # O centered sensor Y
     ws.cell(row, 16, f'=SQRT(N{row}^2+O{row}^2)')  # P image height
     ws.cell(row, 17, inverse_angle_formula(f"P{row}"))  # Q half field angle
-    ws.cell(row, 25, f'=$B$9*TAN(RADIANS(Q{row}))')  # Y hidden object radius
-    ws.cell(row, 18, f'=-Y{row}*N{row}/P{row}')  # R CAD X
-    ws.cell(row, 19, f'=Y{row}*O{row}/P{row}')  # S CAD Y
-    ws.cell(row, 26, forward_radius_formula(f"Q{row}"))  # Z hidden forward radius
-    ws.cell(row, 20, f'=$B$7/2-Z{row}*R{row}/Y{row}')
-    ws.cell(row, 21, f'=$B$8/2+Z{row}*S{row}/Y{row}')
-    ws.cell(row, 22, f'=SQRT((T{row}-L{row})^2+(U{row}-M{row})^2)')
+    ws.cell(row, 25, f'=IF(OR(Q{row}="",Q{row}>=90),"",$B$9*TAN(RADIANS(Q{row})))')
+    ws.cell(row, 18, f'=IF(Y{row}="","",-Y{row}*N{row}/P{row})')
+    ws.cell(row, 19, f'=IF(Y{row}="","",Y{row}*O{row}/P{row})')
+    ws.cell(row, 26, forward_radius_formula(f"Q{row}"))
+    ws.cell(row, 20, f'=IF(OR(Y{row}="",Z{row}=""),"",$B$7/2-Z{row}*R{row}/Y{row})')
+    ws.cell(row, 21, f'=IF(OR(Y{row}="",Z{row}=""),"",$B$8/2+Z{row}*S{row}/Y{row})')
+    ws.cell(row, 22, f'=IF(T{row}="","",SQRT((T{row}-L{row})^2+(U{row}-M{row})^2))')
 
 
 def build_workbook() -> Workbook:
@@ -265,7 +311,7 @@ def build_workbook() -> Workbook:
             'IF(SUMPRODUCT(--(B20:INDEX(B:B,18+H6)<=B19:INDEX(B:B,17+H6)))>0,'
             '"錯誤：實像高須遞增","OK"))))',
         ),
-        (8, "目標範圍", f'=IF(MAX(P{OUTPUT_FIRST}:P{OUTPUT_LAST})>MAX(B19:B{TABLE_LAST}),"警告：超出實像高表","OK")'),
+        (8, "目標範圍", f'=IF(MAX(Q{OUTPUT_FIRST}:Q{OUTPUT_LAST})>=90,"平面無交點：外推半視角≥90°",IF(MAX(P{OUTPUT_FIRST}:P{OUTPUT_LAST})>MAX(B19:B{TABLE_LAST}),"OK，外推","OK"))'),
         (
             9,
             "Sensor 裁切",
@@ -468,8 +514,8 @@ def build_workbook() -> Workbook:
         ("440 點", "11級×2方向×5條線×4角=440點。每條線以四個角點輸出，不重複首點。"
          "這是直邊四角近似；若需要補償每條邊的微小曲率，點數必須增加。"),
         ("CAD 座標", "Sensor 與 CAD 均為 1 unit = 1 mm。CAD 原點為光軸在物平面的投影，X 向右、Y 向上，並包含鏡頭倒像。"),
-        ("實像高表", "直接輸入最多 2000 筆半視角與實像高。實像高是該半視角在 sensor 上距離中心的實際徑向距離。"
-         "圖樣點先算出自己的像高，再反查半視角，最後以 R=Z·tan(θ) 求 CAD 半徑。不使用焦距或畸變率。"),
+        ("實像高表", "表內用相鄰點線性內插。超出最後一筆時，用尾端最多 10 筆擬合 θ=a+b·h+c·h²，並沿終點斜率外推。"
+         "半視角達到 90° 後，正向平面沒有交點，CAD 座標留白。"),
         ("中心 Chart", "本工作簿不生成中心 chart；目前只有第一象限的 0.7 視場 chart。"),
         ("CAD 命令", "「中望CAD」工作表每 6 列是一條封閉多段線，待命狀態下只複製 A 欄貼到命令列。"
          "「LibreCAD」工作表每列是一條 pl;…;close，需用命令列的 Paste commands，不能用一般 Ctrl+V。"),
@@ -485,6 +531,7 @@ def build_workbook() -> Workbook:
         guide.cell(row, 1).border = guide.cell(row, 2).border = BORDER
         guide.row_dimensions[row].height = 68
 
+    add_tail_fit(ws)
     add_zwcad_sheet(wb)
     add_librecad_sheet(wb)
     wb.calculation.fullCalcOnLoad = True

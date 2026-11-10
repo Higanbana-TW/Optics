@@ -132,18 +132,19 @@ def build_workbook() -> Workbook:
         (4, "指定 TV本", 1500, "TV本"),
         (5, "TV本間隔", 100, "TV本"),
         (6, "視場位置", 0.7, "半對角線倍率"),
-        (7, "每組線條數", 5, "固定"),
+        (7, "方位角", 29.3577535428, "degree，+X 往上"),
+        (8, "每組線條數", 5, "固定"),
     ]
     for row, label, value, unit in chart_inputs:
         ws.cell(row, 4, label)
         ws.cell(row, 5, value)
         ws.cell(row, 6, unit)
         ws.cell(row, 5).border = BORDER
-        ws.cell(row, 5).fill = PatternFill("solid", fgColor=GREEN if row == 7 else YELLOW)
+        ws.cell(row, 5).fill = PatternFill("solid", fgColor=GREEN if row == 8 else YELLOW)
     ws.merge_cells("D9:F12")
     ws["D9"] = (
         "第一象限位置：X 向右、Y 向上。\n"
-        "指定 TV本的橫／豎線組合中心位於半對角線指定倍率。\n"
+        "指定 TV本中心的半徑由視場倍率決定，方向由方位角決定。\n"
         "橫線組在左、豎線組在右；11 級由上到下排列。"
     )
     ws["D9"].alignment = Alignment(wrap_text=True, vertical="top")
@@ -151,7 +152,7 @@ def build_workbook() -> Workbook:
 
     section(ws, "G3:I3", "輸入檢查")
     checks = [
-        (4, "基本數值", '=IF(AND(B4>0,B5>0,B6>0,B9>0,B10>0,E4-5*E5>0,E5>0,E6>=0,E6<=1),"OK","錯誤：數值範圍")'),
+        (4, "基本數值", '=IF(AND(B4>0,B5>0,B6>0,B9>0,B10>0,E4-5*E5>0,E5>0,E6>=0,E6<=1,E7>=0,E7<=90),"OK","錯誤：數值範圍")'),
         (5, "輸出點數", "=11*2*5*4"),
         (6, "有效畸變表列數", f"=COUNT(A{TABLE_FIRST}:A{TABLE_LAST})"),
         (
@@ -192,15 +193,19 @@ def build_workbook() -> Workbook:
         ws.cell(row, 10, level)
         ws.cell(row, 11, f"=$E$4+J{row}*$E$5")
         ws.cell(row, 12, f"=$B$8/K{row}")
-        ws.cell(row, 13, f"=(2*$E$7-1)*L{row}")
+        ws.cell(row, 13, f"=(2*$E$8-1)*L{row}")
         ws.cell(row, 14, f"=2*M{row}+L{row}")
-        ws.cell(row, 15, f"=$B$7/2+$E$6*$B$7/2")
+        ws.cell(
+            row,
+            15,
+            f"=$B$7/2+$E$6*SQRT(($B$7/2)^2+($B$8/2)^2)*COS(RADIANS($E$7))",
+        )
         for col in range(10, 17):
             ws.cell(row, col).border = BORDER
             ws.cell(row, col).fill = PatternFill("solid", fgColor=GREEN)
             ws.cell(row, col).number_format = "0.000000"
     # The specified TVL (level 0, row 9) is centered at 0.7 of the half diagonal.
-    ws["P9"] = "=$B$8/2-$E$6*$B$8/2"
+    ws["P9"] = "=$B$8/2-$E$6*SQRT(($B$7/2)^2+($B$8/2)^2)*SIN(RADIANS($E$7))"
     for row in range(10, TVL_LAST + 1):
         ws.cell(row, 16, f"=P{row-1}+M{row-1}/2+MIN(L{row-1},L{row})+M{row}/2")
     for row in range(8, TVL_FIRST - 1, -1):
@@ -296,6 +301,11 @@ def build_workbook() -> Workbook:
     field.showErrorMessage = True
     ws.add_data_validation(field)
     field.add("E6")
+    azimuth = DataValidation(type="decimal", operator="between", formula1="0", formula2="90")
+    azimuth.error = "第一象限方位角須介於 0～90°"
+    azimuth.showErrorMessage = True
+    ws.add_data_validation(azimuth)
+    azimuth.add("E7")
     ws.conditional_formatting.add(
         "H4:H9",
         FormulaRule(formula=['LEFT(H4,2)<>"OK"'], fill=PatternFill("solid", fgColor=RED)),
@@ -353,7 +363,8 @@ def build_workbook() -> Workbook:
     guide.column_dimensions["B"].width = 110
     instructions = [
         ("位置", "只生成第一象限。Sensor 中心為座標中心；第一象限是 X 向右、Y 向上。"
-         "指定 TV本的橫線組與豎線組之組合中心位於中心至右上角半對角線的指定倍率，預設 0.7。"),
+         "指定 TV本中心的半徑為半對角線×視場倍率，方位角從 +X 軸往上量。"
+         "16:9 沿右上角對角線的預設方位角為 atan(9/16)=29.3578°，不是 45°。"),
         ("11 級 TV本", "預設指定 1500 TV本、間隔 100 TV本，自動產生 1000～2000 TV本，共 11 級。"
          "11 級垂直排列：1000 TV本在上方較外場，2000 TV本在下方較內場；相鄰圖樣的間隔採兩級中較細的線寬。"),
         ("線條幾何", "每級包含 5 條橫線與 5 條豎線。線寬=Sensor 高度/TV本；線間空白等於線寬。"
@@ -362,6 +373,8 @@ def build_workbook() -> Workbook:
          "這是直邊四角近似；若需要補償每條邊的微小曲率，點數必須增加。"),
         ("CAD 座標", "Sensor 與 CAD 均為 1 unit = 1 mm。CAD 原點為光軸在物平面的投影，X 向右、Y 向上，並包含鏡頭倒像。"),
         ("畸變模型", "由最多 2000 筆半視角／Optical distortion 建立半視角與畸變像高 LUT，分段線性反查後以 R=Z·tan(θ) 求 CAD 座標。"),
+        ("為何需要 EFL", "半視角／畸變率只有角度與比例，沒有 sensor mm 尺度；需用 h=f·tan(θ)·(1+D) 建立像高。"
+         "只有當某個 FOV 明確對應此 sensor 的指定邊緣時，才可由該 FOV 與 sensor 尺寸反推 EFL。"),
         ("中心 Chart", "本工作簿不生成中心 chart；目前只有第一象限的 0.7 視場 chart。"),
     ]
     for row, (title, body) in enumerate(instructions, 3):

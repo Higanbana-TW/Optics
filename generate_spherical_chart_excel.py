@@ -8,6 +8,7 @@ import re
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 from openpyxl import Workbook
+from openpyxl.drawing.image import Image as XLImage
 from openpyxl.chart import Reference, ScatterChart, Series
 from openpyxl.formatting.rule import FormulaRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -438,7 +439,7 @@ def build_workbook() -> Workbook:
     guide.column_dimensions["A"].width = 20
     guide.column_dimensions["B"].width = 112
     instructions = [
-        ("牆面角度", "0° 表示圖卡位於入瞳正前方、與光軸垂直的平面，座標與平面預變形檔相同。正角度表示整面周邊牆繞光軸交點、朝圖卡方位傾斜。"),
+        ("牆面角度", "這是斜牆和正向平面的夾角，不是半視角。鉸鏈在光軸打到圖卡的點。正角度時，圖卡外緣往鏡頭折；0° 時牆面與光軸垂直。"),
         ("座標", "世界 X/Y/Z 是裝上斜牆後的三維位置，Z 以正向平面為 0。牆面 X/Y 是把斜牆轉回平面後的製造座標，可直接在 2D CAD 畫線。"),
         ("大角度", "半視角接近或超過 90° 時，正向平面沒有有限交點；只要傾斜後的牆面仍被該光線打到，就會得到有限座標。半視角超過 90° 的平面參考半徑留白。"),
         ("實像高", "表內用相鄰點線性內插。超出最後一筆時，用尾端最多 10 筆擬合曲線的終點斜率繼續外推。牆面角度仍決定這條光線打在哪一面牆上。"),
@@ -454,6 +455,11 @@ def build_workbook() -> Workbook:
         guide.cell(row, 2).alignment = Alignment(wrap_text=True, vertical="top")
         guide.cell(row, 1).border = guide.cell(row, 2).border = BORDER
         guide.row_dimensions[row].height = 62
+    diagram = XLImage(Path(__file__).with_name("assets") / "wall_angle_side_view.png")
+    diagram.width = 720
+    diagram.height = 441
+    guide.add_image(diagram, "A9")
+    guide.row_dimensions[9].height = 330
 
     add_tail_fit(ws)
     add_zwcad_sheet(wb)

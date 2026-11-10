@@ -4,7 +4,7 @@
 
 [`lens_distortion_line_calculator.xlsx`](lens_distortion_line_calculator.xlsx) 在 sensor 第一象限自動建立 TV本 chart，並反算可直接匯入 CAD 的物方預變形座標：
 
-- 最多 2000 筆半視角／Optical distortion (%) 資料
+- 最多 2000 筆半視角／實像高資料；不需輸入焦距或畸變率
 - 預設 3840×2160、pixel size 2 µm、實體尺寸 7.68×4.32 mm
 - 預設指定 1500 TV本、間隔 100，自動產生上下各 5 級，共 11 級
 - 每級包含 5 條橫線及 5 條豎線，指定級中心位於第一象限 0.7 視場

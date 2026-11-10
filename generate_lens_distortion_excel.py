@@ -44,32 +44,32 @@ def section(ws, cell_range: str, title: str) -> None:
 
 def inverse_angle_formula(radius_cell: str) -> str:
     count = "$H$6"
-    d_range = f"$D$19:$D${TABLE_LAST}"
+    h_range = f"$B$19:$B${TABLE_LAST}"
     a_range = f"$A$19:$A${TABLE_LAST}"
-    active_d = f"$D$19:INDEX({d_range},{count})"
-    match = f"MATCH({radius_cell},{active_d},1)"
+    active_h = f"$B$19:INDEX({h_range},{count})"
+    match = f"MATCH({radius_cell},{active_h},1)"
     return (
-        f'=IF({radius_cell}<=$D$19,$A$19,'
-        f'IF({radius_cell}>=INDEX({d_range},{count}),INDEX({a_range},{count}),'
+        f'=IF({radius_cell}<=$B$19,$A$19,'
+        f'IF({radius_cell}>=INDEX({h_range},{count}),INDEX({a_range},{count}),'
         f'INDEX({a_range},{match})+'
-        f'({radius_cell}-INDEX({d_range},{match}))*'
+        f'({radius_cell}-INDEX({h_range},{match}))*'
         f'(INDEX({a_range},{match}+1)-INDEX({a_range},{match}))/'
-        f'(INDEX({d_range},{match}+1)-INDEX({d_range},{match}))))'
+        f'(INDEX({h_range},{match}+1)-INDEX({h_range},{match}))))'
     )
 
 
 def forward_radius_formula(angle_cell: str) -> str:
     count = "$H$6"
     a_range = f"$A$19:$A${TABLE_LAST}"
-    d_range = f"$D$19:$D${TABLE_LAST}"
+    h_range = f"$B$19:$B${TABLE_LAST}"
     active_a = f"$A$19:INDEX({a_range},{count})"
     match = f"MATCH({angle_cell},{active_a},1)"
     return (
-        f'=IF({angle_cell}<=$A$19,$D$19,'
-        f'IF({angle_cell}>=INDEX({a_range},{count}),INDEX({d_range},{count}),'
-        f'INDEX({d_range},{match})+'
+        f'=IF({angle_cell}<=$A$19,$B$19,'
+        f'IF({angle_cell}>=INDEX({a_range},{count}),INDEX({h_range},{count}),'
+        f'INDEX({h_range},{match})+'
         f'({angle_cell}-INDEX({a_range},{match}))*'
-        f'(INDEX({d_range},{match}+1)-INDEX({d_range},{match}))/'
+        f'(INDEX({h_range},{match}+1)-INDEX({h_range},{match}))/'
         f'(INDEX({a_range},{match}+1)-INDEX({a_range},{match}))))'
     )
 
@@ -80,7 +80,7 @@ def add_mapping_formulas(ws, row: int) -> None:
     ws.cell(row, 15, f'=M{row}-$B$8/2')  # O centered sensor Y
     ws.cell(row, 16, f'=SQRT(N{row}^2+O{row}^2)')  # P image height
     ws.cell(row, 17, inverse_angle_formula(f"P{row}"))  # Q half field angle
-    ws.cell(row, 25, f'=$B$10*TAN(RADIANS(Q{row}))')  # Y hidden object radius
+    ws.cell(row, 25, f'=$B$9*TAN(RADIANS(Q{row}))')  # Y hidden object radius
     ws.cell(row, 18, f'=-Y{row}*N{row}/P{row}')  # R CAD X
     ws.cell(row, 19, f'=Y{row}*O{row}/P{row}')  # S CAD Y
     ws.cell(row, 26, forward_radius_formula(f"Q{row}"))  # Z hidden forward radius
@@ -117,8 +117,7 @@ def build_workbook() -> Workbook:
         (6, "Sensor 垂直像素", 2160, "pixel"),
         (7, "Sensor 寬度", "=B4*B5/1000", "mm"),
         (8, "Sensor 高度", "=B4*B6/1000", "mm"),
-        (9, "Lens 有效焦距 EFL", 4.0, "mm"),
-        (10, "物方平面至入瞳距離", 1000.0, "mm"),
+        (9, "物方平面至入瞳距離", 1000.0, "mm"),
     ]
     for row, label, value, unit in inputs:
         ws.cell(row, 1, label)
@@ -152,21 +151,21 @@ def build_workbook() -> Workbook:
 
     section(ws, "G3:I3", "輸入檢查")
     checks = [
-        (4, "基本數值", '=IF(AND(B4>0,B5>0,B6>0,B9>0,B10>0,E4-5*E5>0,E5>0,E6>=0,E6<=1,E7>=0,E7<=90),"OK","錯誤：數值範圍")'),
+        (4, "基本數值", '=IF(AND(B4>0,B5>0,B6>0,B9>0,E4-5*E5>0,E5>0,E6>=0,E6<=1,E7>=0,E7<=90),"OK","錯誤：數值範圍")'),
         (5, "輸出點數", "=11*2*5*4"),
         (6, "有效畸變表列數", f"=COUNT(A{TABLE_FIRST}:A{TABLE_LAST})"),
         (
             7,
-            "畸變表狀態",
+            "實像高表狀態",
             '=IF(H6<2,"錯誤：至少 2 列",'
             'IF(COUNTBLANK(A19:INDEX(A:A,18+H6))+COUNTBLANK(B19:INDEX(B:B,18+H6))>0,'
             '"錯誤：中間不可空白",'
             'IF(SUMPRODUCT(--(A20:INDEX(A:A,18+H6)<=A19:INDEX(A:A,17+H6)))>0,'
             '"錯誤：半視角須遞增",'
-            'IF(SUMPRODUCT(--(D20:INDEX(D:D,18+H6)<=D19:INDEX(D:D,17+H6)))>0,'
-            '"錯誤：畸變像高須遞增","OK"))))',
+            'IF(SUMPRODUCT(--(B20:INDEX(B:B,18+H6)<=B19:INDEX(B:B,17+H6)))>0,'
+            '"錯誤：實像高須遞增","OK"))))',
         ),
-        (8, "目標範圍", f'=IF(MAX(P{OUTPUT_FIRST}:P{OUTPUT_LAST})>MAX(D19:D{TABLE_LAST}),"警告：超出畸變表","OK")'),
+        (8, "目標範圍", f'=IF(MAX(P{OUTPUT_FIRST}:P{OUTPUT_LAST})>MAX(B19:B{TABLE_LAST}),"警告：超出實像高表","OK")'),
         (
             9,
             "Sensor 裁切",
@@ -211,10 +210,9 @@ def build_workbook() -> Workbook:
     for row in range(8, TVL_FIRST - 1, -1):
         ws.cell(row, 16, f"=P{row+1}-M{row+1}/2-MIN(L{row},L{row+1})-M{row}/2")
 
-    section(ws, "A17:E17", "Lens distortion table（最多 2000 筆）")
+    section(ws, "A17:C17", "半視角／實像高表（最多 2000 筆）")
     table_headers = [
-        "半視角 θ\n(degree)", "Optical distortion\n(%)", "理想像高\n(mm)",
-        "畸變像高\n(mm)", "物方半徑\n(mm)",
+        "半視角 θ\n(degree)", "實像高 h\n(mm)", "物方半徑\n(mm)",
     ]
     for col, value in enumerate(table_headers, 1):
         cell = ws.cell(18, col, value)
@@ -224,15 +222,13 @@ def build_workbook() -> Workbook:
         cell.border = BORDER
     ws.row_dimensions[18].height = 42
     example_angles = [0, 10, 20, 30, 40, 50]
-    example_distortion = [0, -0.5, -2.0, -4.5, -8.0, -12.0]
+    example_real_heights = [0, 0.701781383, 1.426763318, 2.205478028, 3.087886643, 4.194972646]
     for index, row in enumerate(range(TABLE_FIRST, TABLE_LAST + 1)):
         if index < len(example_angles):
             ws.cell(row, 1, example_angles[index])
-            ws.cell(row, 2, example_distortion[index])
+            ws.cell(row, 2, example_real_heights[index])
         ws.cell(row, 3, f'=IF(A{row}="","",$B$9*TAN(RADIANS(A{row})))')
-        ws.cell(row, 4, f'=IF(C{row}="","",C{row}*(1+B{row}/100))')
-        ws.cell(row, 5, f'=IF(A{row}="","",$B$10*TAN(RADIANS(A{row})))')
-        for col in range(1, 6):
+        for col in range(1, 4):
             ws.cell(row, col).border = BORDER
             ws.cell(row, col).number_format = "0.000000"
         ws.cell(row, 1).fill = ws.cell(row, 2).fill = PatternFill("solid", fgColor=YELLOW)
@@ -294,7 +290,7 @@ def build_workbook() -> Workbook:
     positive.showErrorMessage = True
     ws.add_data_validation(positive)
     positive.add("B4:B6")
-    positive.add("B9:B10")
+    positive.add("B9")
     positive.add("E4:E5")
     field = DataValidation(type="decimal", operator="between", formula1="0", formula2="1")
     field.error = "視場位置須介於 0～1"
@@ -372,9 +368,8 @@ def build_workbook() -> Workbook:
         ("440 點", "11級×2方向×5條線×4角=440點。每條線以四個角點輸出，不重複首點。"
          "這是直邊四角近似；若需要補償每條邊的微小曲率，點數必須增加。"),
         ("CAD 座標", "Sensor 與 CAD 均為 1 unit = 1 mm。CAD 原點為光軸在物平面的投影，X 向右、Y 向上，並包含鏡頭倒像。"),
-        ("畸變模型", "由最多 2000 筆半視角／Optical distortion 建立半視角與畸變像高 LUT，分段線性反查後以 R=Z·tan(θ) 求 CAD 座標。"),
-        ("為何需要 EFL", "半視角／畸變率只有角度與比例，沒有 sensor mm 尺度；需用 h=f·tan(θ)·(1+D) 建立像高。"
-         "只有當某個 FOV 明確對應此 sensor 的指定邊緣時，才可由該 FOV 與 sensor 尺寸反推 EFL。"),
+        ("實像高表", "直接輸入最多 2000 筆半視角與實像高。實像高是該半視角在 sensor 上距離中心的實際徑向距離。"
+         "圖樣點先算出自己的像高，再反查半視角，最後以 R=Z·tan(θ) 求 CAD 半徑。不使用焦距或畸變率。"),
         ("中心 Chart", "本工作簿不生成中心 chart；目前只有第一象限的 0.7 視場 chart。"),
     ]
     for row, (title, body) in enumerate(instructions, 3):

@@ -14,9 +14,12 @@
 
 工作表會輸出 110 條線的 440 個物方 CAD 角點，並提供正向投影驗證、mm 誤差及 sensor／物方圖形。另有「中望CAD」與「LibreCAD」工作表，可直接複製封閉線框命令。中心 chart 暫不生成。詳細定義請見檔案內「使用說明」頁。
 
+平面圖卡的周邊角度是 0°。[`spherical_chart_predistortion.xlsx`](spherical_chart_predistortion.xlsx) 另供魚眼與大角度鏡頭使用：輸入周邊牆面角度後，圖卡改放在傾斜立體牆上，並輸出世界三維座標與牆面展開座標。0° 時結果與平面圖卡相同。
+
 重新產生檔案：
 
 ```bash
 python3 -m pip install openpyxl
 python3 generate_lens_distortion_excel.py
+python3 generate_spherical_chart_excel.py
 ```

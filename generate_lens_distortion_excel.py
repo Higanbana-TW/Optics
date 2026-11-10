@@ -74,6 +74,106 @@ def forward_radius_formula(angle_cell: str) -> str:
     )
 
 
+MAIN_SHEET = "TV本逆畸變計算器"
+CAD_BLOCKS = 110
+CAD_FIRST_POINT = 19
+
+
+def cad_pair(source_row: int) -> str:
+    """Return an Excel expression for one absolute CAD point, x,y."""
+    return (
+        f'TEXT(\'{MAIN_SHEET}\'!R{source_row},"0.000000")&","&'
+        f'TEXT(\'{MAIN_SHEET}\'!S{source_row},"0.000000")'
+    )
+
+
+def add_zwcad_sheet(wb: Workbook) -> None:
+    """Add one AutoCAD-compatible command per row for ZWCAD."""
+    ws = wb.create_sheet("中望CAD")
+    ws.sheet_view.showGridLines = False
+    ws.freeze_panes = "A8"
+    ws.merge_cells("A1:B1")
+    ws["A1"] = "中望CAD 封閉多段線命令"
+    ws["A1"].font = Font(size=18, bold=True, color=WHITE)
+    ws["A1"].fill = PatternFill("solid", fgColor=NAVY)
+    ws.merge_cells("A2:B5")
+    ws["A2"] = (
+        "1. 在中望CAD按 Esc，直到命令列回到待命。\n"
+        "2. 只複製 A8:A667，貼到命令列。\n"
+        "3. 每 6 列畫一條封閉多段線：_PLINE、四個角點、C。\n"
+        "4. B 欄只供核對線段，不要一起複製。"
+    )
+    ws["A2"].alignment = Alignment(wrap_text=True, vertical="top")
+    ws["A2"].fill = PatternFill("solid", fgColor=BLUE)
+    for row in range(2, 6):
+        ws.row_dimensions[row].height = 18
+    for col, title in ((1, "命令（只複製此欄）"), (2, "線段")):
+        cell = ws.cell(7, col, title)
+        cell.font = Font(bold=True, color=WHITE)
+        cell.fill = PatternFill("solid", fgColor=NAVY)
+    output_row = 8
+    for block in range(CAD_BLOCKS):
+        source = CAD_FIRST_POINT + block * 4
+        ws.cell(output_row, 1, "_PLINE")
+        ws.cell(
+            output_row,
+            2,
+            f'=TEXT(\'{MAIN_SHEET}\'!H{source},"0")&" TV本 "'
+            f'&\'{MAIN_SHEET}\'!I{source}&" 第"&\'{MAIN_SHEET}\'!J{source}&"條"',
+        )
+        for offset in range(4):
+            ws.cell(output_row + 1 + offset, 1, f"={cad_pair(source + offset)}")
+        ws.cell(output_row + 5, 1, "C")
+        for offset in range(6):
+            ws.cell(output_row + offset, 1).font = Font(name="Consolas")
+            ws.cell(output_row + offset, 1).fill = PatternFill("solid", fgColor=GREEN)
+        output_row += 6
+    assert output_row == 668
+    ws.column_dimensions["A"].width = 42
+    ws.column_dimensions["B"].width = 28
+
+
+def add_librecad_sheet(wb: Workbook) -> None:
+    """Add one semicolon-delimited closed polyline per TV-line rectangle."""
+    ws = wb.create_sheet("LibreCAD")
+    ws.sheet_view.showGridLines = False
+    ws.freeze_panes = "A8"
+    ws.merge_cells("A1:B1")
+    ws["A1"] = "LibreCAD 封閉多段線命令"
+    ws["A1"].font = Font(size=18, bold=True, color=WHITE)
+    ws["A1"].fill = PatternFill("solid", fgColor=NAVY)
+    ws.merge_cells("A2:B5")
+    ws["A2"] = (
+        "1. 只複製 A8:A117。\n"
+        "2. 在 LibreCAD 命令列選單使用 Paste commands（貼上命令）。\n"
+        "3. 不要用一般 Ctrl+V；LibreCAD 會移除換行，110 條線會黏成一列。\n"
+        "4. 每列格式為 pl;x1,y1;x2,y2;x3,y3;x4,y4;close，畫一條封閉線框。"
+    )
+    ws["A2"].alignment = Alignment(wrap_text=True, vertical="top")
+    ws["A2"].fill = PatternFill("solid", fgColor=BLUE)
+    for row in range(2, 6):
+        ws.row_dimensions[row].height = 18
+    for col, title in ((1, "命令（只複製此欄）"), (2, "線段")):
+        cell = ws.cell(7, col, title)
+        cell.font = Font(bold=True, color=WHITE)
+        cell.fill = PatternFill("solid", fgColor=NAVY)
+    for block in range(CAD_BLOCKS):
+        source = CAD_FIRST_POINT + block * 4
+        points = "&CHAR(59)&".join(cad_pair(source + offset) for offset in range(4))
+        row = 8 + block
+        ws.cell(row, 1, f'="pl"&CHAR(59)&{points}&CHAR(59)&"close"')
+        ws.cell(
+            row,
+            2,
+            f'=TEXT(\'{MAIN_SHEET}\'!H{source},"0")&" TV本 "'
+            f'&\'{MAIN_SHEET}\'!I{source}&" 第"&\'{MAIN_SHEET}\'!J{source}&"條"',
+        )
+        ws.cell(row, 1).font = Font(name="Consolas")
+        ws.cell(row, 1).fill = PatternFill("solid", fgColor=GREEN)
+    ws.column_dimensions["A"].width = 120
+    ws.column_dimensions["B"].width = 28
+
+
 def add_mapping_formulas(ws, row: int) -> None:
     """Map sensor-mm point L/M to CAD-mm R/S and verify in T/V."""
     ws.cell(row, 14, f'=L{row}-$B$7/2')  # N centered sensor X
@@ -371,6 +471,8 @@ def build_workbook() -> Workbook:
         ("實像高表", "直接輸入最多 2000 筆半視角與實像高。實像高是該半視角在 sensor 上距離中心的實際徑向距離。"
          "圖樣點先算出自己的像高，再反查半視角，最後以 R=Z·tan(θ) 求 CAD 半徑。不使用焦距或畸變率。"),
         ("中心 Chart", "本工作簿不生成中心 chart；目前只有第一象限的 0.7 視場 chart。"),
+        ("CAD 命令", "「中望CAD」工作表每 6 列是一條封閉多段線，待命狀態下只複製 A 欄貼到命令列。"
+         "「LibreCAD」工作表每列是一條 pl;…;close，需用命令列的 Paste commands，不能用一般 Ctrl+V。"),
     ]
     for row, (title, body) in enumerate(instructions, 3):
         guide.cell(row, 1, title)
@@ -383,6 +485,8 @@ def build_workbook() -> Workbook:
         guide.cell(row, 1).border = guide.cell(row, 2).border = BORDER
         guide.row_dimensions[row].height = 68
 
+    add_zwcad_sheet(wb)
+    add_librecad_sheet(wb)
     wb.calculation.fullCalcOnLoad = True
     wb.calculation.forceFullCalc = True
     wb.calculation.calcMode = "auto"

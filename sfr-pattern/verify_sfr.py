@@ -76,6 +76,30 @@ def default_pattern():
     return Pattern(sw, sh, center, center, side, 5.0, 500.0, fit)
 
 
+def parse_librecad(text):
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    cmds = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line == "li":
+            p1 = tuple(float(v) for v in lines[i + 1].split(","))
+            p2 = tuple(float(v) for v in lines[i + 2].split(","))
+            if lines[i + 3] != "k":
+                raise AssertionError(f"li at {i} is not followed by k: {lines[i:i+4]}")
+            cmds.append(("LINE", p1, p2))
+            i += 4
+        elif line == "a3":
+            pts = [tuple(float(v) for v in lines[i + 1 + k].split(",")) for k in range(3)]
+            if lines[i + 4] != "k":
+                raise AssertionError(f"a3 at {i} is not followed by k: {lines[i:i+5]}")
+            cmds.append(("ARC", *pts))
+            i += 5
+        else:
+            raise AssertionError(f"unexpected LibreCAD token {line!r}")
+    return cmds
+
+
 def parse_scr(text):
     lines = text.split("\n")
     cmds = []
@@ -232,6 +256,29 @@ def main():
     assert closing == f"{cmds[0][1][0]:.6f},{cmds[0][1][1]:.6f}"
     say(f"SCR has 4 terminated ARC commands, {len(script.splitlines())} lines, and ends on the return to the first corner")
 
+    librecad = book.get("指令", "E2")
+    (ART / "sfr_pattern_librecad.txt").write_text(
+        librecad + ("\n" if not librecad.endswith("\n") else ""),
+        encoding="utf-8",
+    )
+    lc_cmds = parse_librecad(librecad)
+    assert len(lc_cmds) == 4 and all(c[0] == "ARC" for c in lc_cmds)
+    for e, cmd in enumerate(lc_cmds):
+        _, p0, pm, p1 = cmd
+        for got, idx in ((p0, 0), (pm, 16), (p1, 32)):
+            exp = chart_edges[e][idx]
+            assert_close(got[0], exp[0], 5e-5, f"librecad arc {e} x{idx}")
+            assert_close(got[1], exp[1], 5e-5, f"librecad arc {e} y{idx}")
+        if e:
+            prev = lc_cmds[e - 1][3]
+            assert_close(prev[0], p0[0], 1e-6, "librecad join x")
+            assert_close(prev[1], p0[1], 1e-6, "librecad join y")
+    assert_close(lc_cmds[-1][3][0], lc_cmds[0][1][0], 1e-6, "librecad close x")
+    assert_close(lc_cmds[-1][3][1], lc_cmds[0][1][1], 1e-6, "librecad close y")
+    assert librecad.endswith("\n")
+    assert librecad.strip().splitlines()[-1] == "k"
+    say(f"LibreCAD file has 4 a3 arcs, each ended by k, {len(librecad.splitlines())} lines")
+
     judgements = [(book.get("規則", f"A{r}"), book.get("規則", f"C{r}")) for r in range(5, 19)]
     for name, judge in judgements:
         say(f"  {judge}  {name}")
@@ -245,7 +292,11 @@ def main():
     assert [book.get("擬合", f"B{2 + e}") for e in range(4)] == ["LINE"] * 4
     straight = parse_scr(book.get("指令", "B2"))
     assert len(straight) == 4 and all(c[0] == "LINE" for c in straight)
-    say("tolerance 1 mm -> four LINE commands")
+    lc_straight = parse_librecad(book.get("指令", "E2"))
+    assert len(lc_straight) == 4 and all(c[0] == "LINE" for c in lc_straight)
+    assert_close(lc_straight[-1][2][0], lc_straight[0][1][0], 1e-6, "librecad line close x")
+    assert_close(lc_straight[-1][2][1], lc_straight[0][1][1], 1e-6, "librecad line close y")
+    say("tolerance 1 mm -> four LINE commands in ZWCAD and LibreCAD")
 
     book.calc({("參數", "B16"): 0})
     assert book.get("規則", "H6") == "不符合"

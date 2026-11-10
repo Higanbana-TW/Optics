@@ -1105,6 +1105,112 @@ def build_script(ws):
     ws.column_dimensions["AA"].hidden = True
     ws.column_dimensions["AB"].hidden = True
     ws.column_dimensions["AC"].hidden = True
+
+    # LibreCAD has no SCRIPT/_.LINE/_.ARC. Load Command File reads one token per line:
+    # li = two-point line, a3 = arc through start / on-arc / end, k = leave the tool.
+    lc_col = 30
+    lc_row = 1
+
+    def emit_lc(value):
+        nonlocal lc_row
+        ws.cell(lc_row, lc_col, value)
+        lc_row += 1
+        return lc_row - 1
+
+    lc_ranges = {}
+    for edge in range(1, 5):
+        r1 = lc_row
+        emit_lc("li")
+        emit_lc(f"={pair(edge, 0)}")
+        emit_lc(f"={pair(edge, LAST_I)}")
+        emit_lc("k")
+        line_range = (r1, lc_row - 1)
+        r1 = lc_row
+        emit_lc("a3")
+        emit_lc(f"={pair(edge, 0)}")
+        emit_lc(f"={pair(edge, 16)}")
+        emit_lc(f"={pair(edge, LAST_I)}")
+        emit_lc("k")
+        arc_range = (r1, lc_row - 1)
+        r1 = lc_row
+        for s in range(4):
+            cr = circle_row(edge, 1 + s)
+            i0, i1, i2 = s * 8, s * 8 + 4, s * 8 + 8
+            emit_lc(f'=IF(擬合!T{cr}=1,"a3","li")')
+            emit_lc(f"={pair(edge, i0)}")
+            emit_lc(f'=IF(擬合!T{cr}=1,{pair(edge, i1)},{pair(edge, i2)})')
+            emit_lc(f'=IF(擬合!T{cr}=1,{pair(edge, i2)},"k")')
+            emit_lc(f'=IF(擬合!T{cr}=1,"k","")')
+        arc4_range = (r1, lc_row - 1)
+        r1 = lc_row
+        for s in range(8):
+            cr = circle_row(edge, 5 + s)
+            i0, i1, i2 = s * 4, s * 4 + 2, s * 4 + 4
+            emit_lc(f'=IF(擬合!T{cr}=1,"a3","li")')
+            emit_lc(f"={pair(edge, i0)}")
+            emit_lc(f'=IF(擬合!T{cr}=1,{pair(edge, i1)},{pair(edge, i2)})')
+            emit_lc(f'=IF(擬合!T{cr}=1,{pair(edge, i2)},"k")')
+            emit_lc(f'=IF(擬合!T{cr}=1,"k","")')
+        arc8_range = (r1, lc_row - 1)
+        r1 = lc_row
+        for i in range(LAST_I):
+            emit_lc("li")
+            emit_lc(f"={pair(edge, i)}")
+            emit_lc(f"={pair(edge, i + 1)}")
+            emit_lc("k")
+        poly_range = (r1, lc_row - 1)
+        lc_ranges[edge] = {
+            "LINE": line_range,
+            "ARC": arc_range,
+            "ARC4": arc4_range,
+            "ARC8": arc8_range,
+            "POLY": poly_range,
+        }
+
+    def join_lc(a, b):
+        ws.cell(a, 31, f"=AD{a}")
+        for r in range(a + 1, b + 1):
+            ws.cell(r, 31, f'=IF(AD{r}="",AE{r - 1},AE{r - 1}&CHAR(10)&AD{r})')
+        return f"AE{b}"
+
+    lc_parts = []
+    for edge in range(1, 5):
+        ranges = lc_ranges[edge]
+        mode = f"擬合!B{1 + edge}"
+        lc_parts.append(
+            f'IF({mode}="LINE",{join_lc(*ranges["LINE"])},'
+            f'IF({mode}="ARC",{join_lc(*ranges["ARC"])},'
+            f'IF({mode}="ARC4",{join_lc(*ranges["ARC4"])},'
+            f'IF({mode}="ARC8",{join_lc(*ranges["ARC8"])},'
+            f'{join_lc(*ranges["POLY"])}))))'
+        )
+    ws["AF1"] = "=" + "&CHAR(10)&".join(lc_parts)
+    ws["E2"] = '=AF1&IF(RIGHT(AF1,1)=CHAR(10),"",CHAR(10))'
+    ws["E2"].alignment = Alignment(wrap_text=True, vertical="top")
+    ws["E2"].font = Font(name="Consolas", size=9, color=INK)
+    ws["E2"].fill = PatternFill("solid", fgColor="EAF2F8")
+    ws.merge_cells("E2:E18")
+    ws["E1"] = "複製這個儲存格"
+    ws["E1"].font = font(bold=True, color="1A5276")
+    ws.merge_cells("D1:D1")
+    ws["D1"] = "LibreCAD 指令"
+    ws["D1"].font = font_title
+    ws.merge_cells("D2:D8")
+    ws["D2"] = (
+        "1. LibreCAD 開新圖，單位選公厘。原點放在光軸，+X 向右，+Y 向上。\n"
+        "2. 複製右邊儲存格，貼到純文字檔，存成 sfr_pattern_librecad.txt。\n"
+        "3. 指令列右下角按鈕選 Load Command File，或選 Paste multiple commands。\n"
+        "4. li 是兩點線，a3 是三點弧（起點、弧上點、終點），k 結束目前指令。\n"
+        "5. 每一段後面的 k 不要刪。第四邊最後一個座標就是回到第一個角。\n"
+        "6. 改了黃底參數後，這個儲存格會重算，請重新載入。"
+    )
+    ws["D2"].alignment = Alignment(wrap_text=True, vertical="top")
+    ws["D2"].font = font(size=11)
+    ws.column_dimensions["D"].width = 46
+    ws.column_dimensions["E"].width = 110
+    ws.column_dimensions["AD"].hidden = True
+    ws.column_dimensions["AE"].hidden = True
+    ws.column_dimensions["AF"].hidden = True
     ws.sheet_view.zoomScale = 110
     ws.page_setup.orientation = "landscape"
     ws.page_setup.fitToPage = True
@@ -1112,7 +1218,7 @@ def build_script(ws):
     ws.page_setup.fitToHeight = 1
     ws.page_setup.paperSize = ws.PAPERSIZE_A4
     ws.freeze_panes = "A2"
-    ws.oddFooter.center.text = "ZWCAD SCRIPT  ·  _.LINE  _.ARC"
+    ws.oddFooter.center.text = "ZWCAD  _.LINE _.ARC   ·   LibreCAD  li a3 k"
 
 
 def build_coords(ws):
@@ -1237,7 +1343,7 @@ def build_help(ws):
         ("Imatest SFR pattern 怎麼用", True, 20),
         ("這張表只產生斜方塊的四條邊。Sensor 上這四邊是直的，傾斜角由你決定。圖卡上的邊已經做過逆畸變，鏡頭照進去才會變直。", False, 12),
         ("", False, 8),
-        ("要改的東西都在「參數」，黃底儲存格。改完看「規則」是不是通過，再到「指令」複製 SCR。", False, 12),
+        ("要改的東西都在「參數」，黃底儲存格。改完看「規則」是不是通過，再到「指令」複製中望 SCR 或 LibreCAD 指令檔。", False, 12),
         ("", False, 8),
         ("1. 傾斜角", True, 16),
         ("方塊相對 sensor 水平軸旋轉。ISO 12233 常用 5° 或 5.71°（arctan 0.1）。Imatest 要求離開最近的水平、垂直、45° 至少約 2°，3°–7° 最合適。四邊會同時得到接近水平與接近垂直的 SFR。", False, 12),
@@ -1255,6 +1361,9 @@ def build_help(ws):
         ("", False, 8),
         ("5. 中望 CAD", True, 16),
         ("指令是 _.LINE 與 _.ARC。三點 ARC 的順序是起點、弧上中點、終點。原點請放在光軸與圖卡的交點，單位與「座標縮放」一致，預設公厘。公差內能用一條直線就用 LINE，否則用 ARC；彎得更厲害就拆成 4 段或 8 段，仍不夠才用 33 點折線。每一邊的點都在「座標」工作表。", False, 12),
+        ("", False, 8),
+        ("6. LibreCAD", True, 16),
+        ("同一組座標改成 li、a3、k。li 畫兩點線，a3 依序吃起點、弧上點、終點，k 放開指令。存成文字檔後，用指令列的 Load Command File 載入。第四邊的終點一樣回到第一個角。", False, 12),
         ("", False, 8),
         ("座標方向：sensor 與圖卡都是 +X 向右、+Y 向上，原點在主點 / 光軸。影像檔的列號通常上為 0，參數頁有換算。", False, 12),
     ]

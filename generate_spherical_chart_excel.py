@@ -156,16 +156,16 @@ def add_zwcad_sheet(wb: Workbook) -> None:
     ws = wb.create_sheet("中望CAD")
     style_command_sheet(
         ws,
-        "中望CAD 立體牆 3D 多段線",
+        "中望CAD 貼牆用的牆面線框",
         "1. 按 Esc，直到命令列回到待命。\n"
         "2. 只複製 A8:A667，貼到命令列。\n"
-        "3. 每條線是 _3DPOLY 加四個 X,Y,Z 角點，再以 C 封閉。\n"
-        "4. 牆面角度為 0 時 Z=0，圖形落在與平面圖卡相同的 XY 平面。",
+        "3. 每條線是 _PLINE 加四個牆面 X,Y，再以 C 封閉。\n"
+        "4. 這是貼在斜牆牆皮上的 1:1 圖。原點是鉸鏈。不要印世界 X,Y,Z。",
     )
     output_row = 8
     for block in range(CAD_BLOCKS):
         source = OUTPUT_FIRST + block * 4
-        ws.cell(output_row, 1, "_3DPOLY")
+        ws.cell(output_row, 1, "_PLINE")
         ws.cell(
             output_row,
             2,
@@ -177,9 +177,8 @@ def add_zwcad_sheet(wb: Workbook) -> None:
             ws.cell(
                 output_row + 1 + offset,
                 1,
-                f'=TEXT(\'{MAIN}\'!R{point},"0.000000")&","&'
-                f'TEXT(\'{MAIN}\'!S{point},"0.000000")&","&'
-                f'TEXT(\'{MAIN}\'!T{point},"0.000000")',
+                f'=TEXT(\'{MAIN}\'!U{point},"0.000000")&","&'
+                f'TEXT(\'{MAIN}\'!V{point},"0.000000")',
             )
         ws.cell(output_row + 5, 1, "C")
         for offset in range(6):
@@ -443,7 +442,7 @@ def build_workbook() -> Workbook:
         ("座標", "世界 X/Y/Z 是裝上斜牆後的三維位置，Z 以正向平面為 0。牆面 X/Y 是把斜牆轉回平面後的製造座標，可直接在 2D CAD 畫線。"),
         ("大角度", "半視角接近或超過 90° 時，正向平面沒有有限交點；只要傾斜後的牆面仍被該光線打到，就會得到有限座標。半視角超過 90° 的平面參考半徑留白。"),
         ("實像高", "表內用相鄰點線性內插。超出最後一筆時，用尾端最多 10 筆擬合曲線的終點斜率繼續外推。牆面角度仍決定這條光線打在哪一面牆上。"),
-        ("CAD", "中望CAD 使用世界 X,Y,Z 的 _3DPOLY。LibreCAD 只使用牆面展開的 2D 座標，並以 Paste commands 貼上。"),
+        ("CAD", "貼到斜牆上要印牆面 X,Y。中望CAD 工作表是這些座標的 _PLINE。世界 X,Y,Z 是正面看到的空間位置，印出來貼到斜牆上不會落到補正後的位置。"),
     ]
     for row, (title, body) in enumerate(instructions, 3):
         guide.cell(row, 1, title)

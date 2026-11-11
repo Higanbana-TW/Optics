@@ -113,10 +113,10 @@ def add_wall_formulas(ws, row: int) -> None:
         f'=IF(Q{row}="","",SIN(RADIANS($B$10))*SIN(RADIANS(Q{row}))*AC{row}'
         f'+COS(RADIANS($B$10))*COS(RADIANS(Q{row})))',
     )
-    ws.cell(row, 31, f'=IF(OR(AD{row}="",AD{row}<=0),"",$B$9*COS(RADIANS($B$10))/AD{row})')
+    ws.cell(row, 31, f'=IF(OR(AD{row}="",AD{row}<=0),"",$B$9*COS(RADIANS($C$14-$B$10))/AD{row})')
     ws.cell(row, 18, f'=IF(AE{row}="","",AE{row}*SIN(RADIANS(Q{row}))*AA{row})')
     ws.cell(row, 19, f'=IF(AE{row}="","",AE{row}*SIN(RADIANS(Q{row}))*AB{row})')
-    ws.cell(row, 20, f'=IF(AE{row}="","",AE{row}*COS(RADIANS(Q{row}))-$B$9)')
+    ws.cell(row, 20, f'=IF(AE{row}="","",AE{row}*COS(RADIANS(Q{row}))-$C$15)')
     ws.cell(row, 23, f'=IF(AE{row}="","未相交","OK")')
     dot = f'(-$C$13*R{row}+$C$12*S{row})'
     ws.cell(
@@ -246,7 +246,7 @@ def build_workbook() -> Workbook:
         (6, "Sensor 垂直像素", 2160, "pixel"),
         (7, "Sensor 寬度", "=B4*B5/1000", "mm"),
         (8, "Sensor 高度", "=B4*B6/1000", "mm"),
-        (9, "入瞳至牆軸距離", 1000.0, "mm"),
+        (9, "入瞳至圖卡中心", 1000.0, "mm，沿主光線"),
         (10, "周邊牆面角度", 0.0, "degree，平面為 0"),
     ]
     for row, label, value, unit in inputs:
@@ -255,6 +255,15 @@ def build_workbook() -> Workbook:
         ws.cell(row, 3, unit)
         ws.cell(row, 2).border = BORDER
         ws.cell(row, 2).fill = PatternFill("solid", fgColor=GREEN if row in (7, 8) else YELLOW)
+    ws["A11"] = "圖卡中心像高"
+    ws["C11"] = '=SQRT((O9-$B$7/2)^2+(P9-$B$8/2)^2)'
+    ws["A14"] = "圖卡中心半視角"
+    ws["C14"] = inverse_angle_formula("$C$11")
+    ws["A15"] = "鉸鏈距離"
+    ws["C15"] = '=$B$9*COS(RADIANS(C14-$B$10))/COS(RADIANS($B$10))'
+    for row in (11, 14, 15):
+        ws.cell(row, 3).number_format = "0.000000"
+        ws.cell(row, 3).fill = PatternFill("solid", fgColor=GREEN)
     ws["A12"] = "牆面方位 X"
     ws["C12"] = '=IF(SQRT((O9-$B$7/2)^2+(P9-$B$8/2)^2)=0,1,-(O9-$B$7/2)/SQRT((O9-$B$7/2)^2+(P9-$B$8/2)^2))'
     ws["A13"] = "牆面方位 Y"
@@ -330,7 +339,7 @@ def build_workbook() -> Workbook:
         if index < len(example_angles):
             ws.cell(row, 1, example_angles[index])
             ws.cell(row, 2, example_heights[index])
-        ws.cell(row, 3, f'=IF(OR(A{row}="",A{row}>=90),"",$B$9*TAN(RADIANS(A{row})))')
+        ws.cell(row, 3, f'=IF(OR(A{row}="",A{row}>=90),"",$C$15*TAN(RADIANS(A{row})))')
         for col in range(1, 4):
             ws.cell(row, col).border = BORDER
             ws.cell(row, col).number_format = "0.000000"
@@ -438,6 +447,7 @@ def build_workbook() -> Workbook:
     guide.column_dimensions["A"].width = 20
     guide.column_dimensions["B"].width = 112
     instructions = [
+        ("圖卡距離", "B9 是入瞳到指定視場圖卡中心的距離，沿主光線量。牆面傾斜後，這個中心仍維持 B9；鉸鏈會沿光軸移動。"),
         ("牆面角度", "這是斜牆和正向平面的夾角，不是半視角。鉸鏈在光軸打到圖卡的點。正角度時，圖卡外緣往鏡頭折；0° 時牆面與光軸垂直。"),
         ("座標", "世界 X/Y/Z 是裝上斜牆後的三維位置，Z 以正向平面為 0。牆面 X/Y 是把斜牆轉回平面後的製造座標，可直接在 2D CAD 畫線。"),
         ("大角度", "半視角接近或超過 90° 時，正向平面沒有有限交點；只要傾斜後的牆面仍被該光線打到，就會得到有限座標。半視角超過 90° 的平面參考半徑留白。"),
@@ -457,8 +467,8 @@ def build_workbook() -> Workbook:
     diagram = XLImage(Path(__file__).with_name("assets") / "wall_angle_side_view.png")
     diagram.width = 720
     diagram.height = 441
-    guide.add_image(diagram, "A9")
-    guide.row_dimensions[9].height = 330
+    guide.add_image(diagram, "A10")
+    guide.row_dimensions[10].height = 330
 
     add_tail_fit(ws)
     add_zwcad_sheet(wb)
